@@ -42,6 +42,8 @@ pnpm test:integration  # requires TEST_DATABASE_URL
 
 The CI workflow runs integration verification and the workspace checks on pull requests.
 
+To edit the expected behavior in plain language and have the automated checks adapted to it, use the [test guide](docs/test-guide.md).
+
 ## Project boundaries
 
 Nischit records operational evidence and decisions. A hash or public-chain transaction does not prove a sensor was accurate, goods were physically handled as recorded, or a QA decision was correct. Payment and attestation adapters are optional and must be configured explicitly. Production use requires a reviewed identity and authorization setup, private storage and malware scanning, backups and recovery procedures, monitoring, security review, and applicable legal and customer approvals.

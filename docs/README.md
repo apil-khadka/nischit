@@ -14,6 +14,7 @@ This documentation describes the product boundary, architecture, implementation 
 - [Authentication](authentication.md) — OIDC and tenant membership behavior.
 - [Deployment](deployment.md) — local and self-hosted operation.
 - [Testing](testing.md) — automated checks and integration requirements.
+- [Test guide](test-guide.md) — editable, plain-language expectations for system behavior.
 - [Technology stack](tech-stack.md) and [design system](design-system.md) — framework and interface conventions.
 
 ## Decisions
