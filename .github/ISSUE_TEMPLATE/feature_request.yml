@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a user or operational improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: "Describe the need and expected outcome. Do not include patient information, credentials, or confidential customer records."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Who encounters this problem, and what do they need to do?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior that would solve the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Safety and operational considerations
+      description: Note any effects on tenant isolation, authorization, auditability, evidence, inventory, or settlement.
+    validations:
+      required: false

@@ -1,0 +1,16 @@
+{$APP_DOMAIN} {
+  encode gzip
+
+  handle /api/* {
+    reverse_proxy api:4000
+  }
+
+  handle {
+    reverse_proxy web:3000
+  }
+}
+
+{$RAUTHY_DOMAIN} {
+  encode gzip
+  reverse_proxy rauthy:8080
+}

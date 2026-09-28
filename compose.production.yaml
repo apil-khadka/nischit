@@ -1,0 +1,188 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [private]
+
+  migrate:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL to the privileged migration connection}
+    volumes:
+      - ./db/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["psql \"$$DATABASE_URL\" -v ON_ERROR_STOP=1 -f /migrations/0001_initial.sql"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [private]
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "no", "--requirepass", "${VALKEY_PASSWORD:?set VALKEY_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?set VALKEY_PASSWORD}
+    networks: [private]
+
+  api:
+    image: ${NISCHIT_IMAGE_PREFIX:?set NISCHIT_IMAGE_PREFIX}/api:${NISCHIT_VERSION:?set NISCHIT_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      PERSISTENCE_MODE: postgres
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      VALKEY_URL: ${VALKEY_URL:?set VALKEY_URL}
+      CORS_ORIGINS: https://${APP_DOMAIN:?set APP_DOMAIN}
+      IDENTITY_MODE: ${IDENTITY_MODE:-rauthy-session}
+      IDENTITY_ISSUER: ${AUTH_SESSION_ISSUER:-nischit-session}
+      IDENTITY_AUDIENCE: ${IDENTITY_AUDIENCE:-nischit-api}
+      IDENTITY_TENANT_CLAIM: ${IDENTITY_TENANT_CLAIM:-tenant_id}
+      IDENTITY_DEFAULT_TENANT_ID: ${IDENTITY_DEFAULT_TENANT_ID:-}
+      IDENTITY_USER_CLAIM: ${IDENTITY_USER_CLAIM:-sub}
+      IDENTITY_HEADER: ${IDENTITY_HEADER:-cookie}
+      AUTH_SESSION_ISSUER: ${AUTH_SESSION_ISSUER:-nischit-session}
+      AUTH_SESSION_COOKIE: ${AUTH_SESSION_COOKIE:-nischit_session}
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?set AUTH_SESSION_SECRET}
+      IDENTITY_BOOTSTRAP_EMAIL: ${IDENTITY_BOOTSTRAP_EMAIL:-}
+      IDENTITY_BOOTSTRAP_TENANT_ID: ${IDENTITY_BOOTSTRAP_TENANT_ID:-}
+      IDENTITY_BOOTSTRAP_TENANT_NAME: ${IDENTITY_BOOTSTRAP_TENANT_NAME:-}
+      IDENTITY_BOOTSTRAP_ROLES: ${IDENTITY_BOOTSTRAP_ROLES:-owner,admin}
+      OBJECT_STORE_ENDPOINT: ${R2_ENDPOINT:?set R2_ENDPOINT}
+      OBJECT_STORE_REGION: auto
+      OBJECT_STORE_BUCKET: ${R2_BUCKET:?set R2_BUCKET}
+      OBJECT_STORE_ACCESS_KEY: ${R2_ACCESS_KEY:?set R2_ACCESS_KEY}
+      OBJECT_STORE_SECRET_KEY: ${R2_SECRET_KEY:?set R2_SECRET_KEY}
+      OBJECT_STORE_FORCE_PATH_STYLE: "false"
+      MAX_EVIDENCE_BYTES: ${MAX_EVIDENCE_BYTES:-10485760}
+      EVIDENCE_SCANNER_HOST: ${EVIDENCE_SCANNER_HOST:?set EVIDENCE_SCANNER_HOST to the private ClamAV service}
+      EVIDENCE_SCANNER_PORT: ${EVIDENCE_SCANNER_PORT:-3310}
+      EVIDENCE_SCANNER_TIMEOUT_MS: ${EVIDENCE_SCANNER_TIMEOUT_MS:-30000}
+      PAYMENT_MODE: ${PAYMENT_MODE:?set PAYMENT_MODE}
+      ATTESTATION_MODE: ${ATTESTATION_MODE:?set ATTESTATION_MODE}
+      TEMPO_RPC_URL: ${TEMPO_RPC_URL:-}
+      TEMPO_CHAIN_ID: ${TEMPO_CHAIN_ID:-42431}
+      TEMPO_ESCROW_ADDRESS: ${TEMPO_ESCROW_ADDRESS:-}
+      TEMPO_PAYER_PRIVATE_KEY: ${TEMPO_PAYER_PRIVATE_KEY:-}
+      TEMPO_TOKEN_ADDRESSES_JSON: ${TEMPO_TOKEN_ADDRESSES_JSON:-}
+      TEMPO_SUPPLIER_ADDRESSES_JSON: ${TEMPO_SUPPLIER_ADDRESSES_JSON:-}
+      TEMPO_CONFIRMATIONS: ${TEMPO_CONFIRMATIONS:-1}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-}
+      SOLANA_RPC_SUBSCRIPTIONS_URL: ${SOLANA_RPC_SUBSCRIPTIONS_URL:-}
+      SOLANA_SIGNER_SECRET_KEY: ${SOLANA_SIGNER_SECRET_KEY:-}
+      SOLANA_MEMO_PREFIX: ${SOLANA_MEMO_PREFIX:-nischit:v1}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      valkey: { condition: service_healthy }
+    expose: ["4000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4000/api/health/ready | grep -q '\"ok\":true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [private]
+
+  worker:
+    image: ${NISCHIT_IMAGE_PREFIX:?set NISCHIT_IMAGE_PREFIX}/worker:${NISCHIT_VERSION:?set NISCHIT_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [private]
+
+  rauthy:
+    image: ghcr.io/sebadob/rauthy:0.36.2
+    restart: unless-stopped
+    environment:
+      LISTEN_SCHEME: http
+      LISTEN_PORT_HTTP: 8080
+      PUB_URL: ${RAUTHY_DOMAIN:?set RAUTHY_DOMAIN}:443
+      PROXY_MODE: "true"
+      TRUSTED_PROXIES: ${RAUTHY_TRUSTED_PROXIES:-172.16.0.0/12}
+      HTTP_WORKERS: ${RAUTHY_HTTP_WORKERS:-1}
+      HQL_NODE_ID: ${RAUTHY_NODE_ID:-1}
+      HQL_NODES: ${RAUTHY_NODES:-1 localhost:8100 localhost:8200}
+      HQL_SECRET_RAFT: ${RAUTHY_SECRET_RAFT:?set RAUTHY_SECRET_RAFT}
+      HQL_SECRET_API: ${RAUTHY_SECRET_API:?set RAUTHY_SECRET_API}
+      RP_ID: ${RAUTHY_DOMAIN:?set RAUTHY_DOMAIN}
+      RP_ORIGIN: https://${RAUTHY_DOMAIN:?set RAUTHY_DOMAIN}:443
+      RP_NAME: Nischit Identity
+      AUTH_HEADERS_ENABLE: "false"
+      SWAGGER_UI_ENABLE: "false"
+      ADMIN_FORCE_MFA: "true"
+    volumes:
+      - rauthy-data:/app/data
+    expose: ["8080"]
+    networks: [private]
+
+  web:
+    image: ${NISCHIT_IMAGE_PREFIX:?set NISCHIT_IMAGE_PREFIX}/web:${NISCHIT_VERSION:?set NISCHIT_VERSION}
+    restart: unless-stopped
+    environment:
+      RAUTHY_ISSUER: ${RAUTHY_ISSUER:?set RAUTHY_ISSUER}
+      RAUTHY_CLIENT_ID: ${RAUTHY_CLIENT_ID:?set RAUTHY_CLIENT_ID}
+      RAUTHY_CLIENT_SECRET: ${RAUTHY_CLIENT_SECRET:-}
+      NISCHIT_OIDC_REDIRECT_URI: ${NISCHIT_OIDC_REDIRECT_URI:?set NISCHIT_OIDC_REDIRECT_URI}
+      AUTH_SESSION_ISSUER: ${AUTH_SESSION_ISSUER:-nischit-session}
+      AUTH_SESSION_COOKIE: ${AUTH_SESSION_COOKIE:-nischit_session}
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?set AUTH_SESSION_SECRET}
+      IDENTITY_AUDIENCE: ${IDENTITY_AUDIENCE:-nischit-api}
+      IDENTITY_TENANT_CLAIM: ${IDENTITY_TENANT_CLAIM:-tenant_id}
+      IDENTITY_DEFAULT_TENANT_ID: ${IDENTITY_DEFAULT_TENANT_ID:-}
+      IDENTITY_USER_CLAIM: ${IDENTITY_USER_CLAIM:-sub}
+    expose: ["3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/ | grep -q 'Trust what you can trace' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [private]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      RAUTHY_DOMAIN: ${RAUTHY_DOMAIN:?set RAUTHY_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_healthy }
+    networks: [private]
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  rauthy-data:
+
+networks:
+  private:
+    driver: bridge

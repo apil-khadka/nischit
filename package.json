@@ -1,0 +1,29 @@
+{
+  "name": "nischit",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @nischit/api --filter @nischit/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm -r typecheck",
+    "test": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm -r test",
+    "test:e2e": "pnpm --filter @nischit/web test:e2e",
+    "test:integration": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm --filter @nischit/api test:integration && pnpm --filter @nischit/worker test:integration",
+    "test:coverage": "pnpm --filter @nischit/domain test:coverage",
+    "db:backup": "bash scripts/backup-postgres.sh",
+    "db:restore": "bash scripts/restore-postgres.sh",
+    "verify": "pnpm typecheck && pnpm test && pnpm build",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

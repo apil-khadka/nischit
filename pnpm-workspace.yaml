@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  '@astryxdesign/core': true
+  esbuild: true
+minimumReleaseAgeExclude:
+  - viem@2.56.8

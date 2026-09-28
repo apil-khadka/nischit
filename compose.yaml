@@ -1,0 +1,139 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: nischit
+      POSTGRES_USER: nischit
+      POSTGRES_PASSWORD: nischit_local
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nischit -d nischit"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks: [private]
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [private]
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    profiles: ["local-storage"]
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: nischit-local-access
+      RUSTFS_SECRET_KEY: nischit-local-secret-change-me
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [private]
+
+  rustfs-init:
+    image: quay.io/minio/mc:latest
+    profiles: ["local-storage"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      "mc alias set local http://rustfs:9000 nischit-local-access nischit-local-secret-change-me &&
+       mc mb --ignore-existing local/nischit-local &&
+       mc anonymous set private local/nischit-local"
+    depends_on:
+      rustfs: { condition: service_healthy }
+    networks: [private]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      PERSISTENCE_MODE: postgres
+      DATABASE_URL: postgres://nischit:nischit_local@postgres:5432/nischit
+      VALKEY_URL: redis://valkey:6379
+      CORS_ORIGINS: http://localhost:3000
+      PAYMENT_MODE: ${PAYMENT_MODE:-mock}
+      ATTESTATION_MODE: ${ATTESTATION_MODE:-mock}
+      TEMPO_RPC_URL: ${TEMPO_RPC_URL:-}
+      TEMPO_CHAIN_ID: ${TEMPO_CHAIN_ID:-42431}
+      TEMPO_ESCROW_ADDRESS: ${TEMPO_ESCROW_ADDRESS:-}
+      TEMPO_PAYER_PRIVATE_KEY: ${TEMPO_PAYER_PRIVATE_KEY:-}
+      TEMPO_TOKEN_ADDRESSES_JSON: ${TEMPO_TOKEN_ADDRESSES_JSON:-}
+      TEMPO_SUPPLIER_ADDRESSES_JSON: ${TEMPO_SUPPLIER_ADDRESSES_JSON:-}
+      TEMPO_CONFIRMATIONS: ${TEMPO_CONFIRMATIONS:-1}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-}
+      SOLANA_RPC_SUBSCRIPTIONS_URL: ${SOLANA_RPC_SUBSCRIPTIONS_URL:-}
+      SOLANA_SIGNER_SECRET_KEY: ${SOLANA_SIGNER_SECRET_KEY:-}
+      SOLANA_MEMO_PREFIX: ${SOLANA_MEMO_PREFIX:-nischit:v1}
+      IDENTITY_ISSUER: ${IDENTITY_ISSUER:-}
+      IDENTITY_AUDIENCE: ${IDENTITY_AUDIENCE:-}
+      IDENTITY_TENANT_CLAIM: ${IDENTITY_TENANT_CLAIM:-tenant_id}
+      IDENTITY_PUBLIC_KEY: ${IDENTITY_PUBLIC_KEY:-}
+      OBJECT_STORE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORE_REGION: us-east-1
+      OBJECT_STORE_BUCKET: nischit-local
+      OBJECT_STORE_ACCESS_KEY: nischit-local-access
+      OBJECT_STORE_SECRET_KEY: nischit-local-secret-change-me
+      OBJECT_STORE_FORCE_PATH_STYLE: "true"
+      MAX_EVIDENCE_BYTES: ${MAX_EVIDENCE_BYTES:-10485760}
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:4000:4000"
+    networks: [private]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://nischit:nischit_local@postgres:5432/nischit
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [private]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4000/api
+    environment:
+      PORT: 3000
+    depends_on: [api]
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [private]
+
+volumes:
+  postgres-data:
+  rustfs-data:
+
+networks:
+  private:
+    driver: bridge
