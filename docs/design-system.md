@@ -10,9 +10,9 @@ docType: reference
 
 Nischit will use [Astryx](https://astryx.atmeta.com/) as its component and theme foundation. The product should feel like a calm, approachable operations tool for laboratory teams: bright, clear, trustworthy, and easy to scan during receiving or QA work.
 
-Use Astryx's **Butter** theme as the starting point, then extend it into a small Nischit theme. Butter is a strong fit because Astryx describes it as warm, creamy, friendly, and blue-accented. Do not create a parallel component library or replace Astryx primitives with ad-hoc buttons, inputs, cards, or tables.
+Use Astryx's **Butter** component foundation and apply the Nischit palette consistently across marketing and workspace screens. The app uses a neutral `#F6F7F9` canvas, white surfaces, and blue `#315DE8` actions. Do not create a parallel component library or replace Astryx primitives with ad-hoc buttons, inputs, cards, or tables.
 
-The public marketing surface uses the same semantic foundation but a lighter canvas than the default Butter body. See [public site](public-site.md) for the route and brand treatment. The workspace remains Astryx-first and keeps status semantics separate from the marketing palette.
+The public marketing surface and workspace share the same canvas and accent. See [public site](public-site.md) for route and brand details. Status colors stay separate from the core palette and only indicate a clearly labeled state.
 
 Astryx is currently beta and requires React 19 or later. Its documentation recommends building a custom theme from editable source, using per-category component imports, and using pre-built theme CSS for SSR applications such as Next.js.
 
@@ -55,32 +55,32 @@ export const nischitTheme = defineTheme({
   name: 'nischit',
   extends: butterTheme,
   typography: {
-    scale: {base: 14, ratio: 1.25},
-    body: {family: 'Outfit', fallbacks: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'},
-    heading: {family: 'Outfit', fallbacks: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'},
+    scale: {base: 16, ratio: 1.618},
+    body: {family: 'Plus Jakarta Sans', fallbacks: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'},
+    heading: {family: 'Plus Jakarta Sans', fallbacks: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'},
     code: {family: 'JetBrains Mono', fallbacks: 'monospace'},
   },
   tokens: {
-    '--color-accent': ['#225BFF', '#FDEE8C'],
-    '--color-background-body': ['#FDFBE4', '#261A13'],
-    '--color-background-surface': ['#FFFFFF', '#2E2117'],
+    '--color-accent': ['#315DE8', '#315DE8'],
+    '--color-background-body': ['#F6F7F9', '#F6F7F9'],
+    '--color-background-surface': ['#FFFFFF', '#FFFFFF'],
   },
 });
 ```
 
-The exact token set should be generated and checked by Astryx rather than copied into individual components. Use semantic Astryx tokens such as `--color-background-body`, `--color-background-surface`, `--color-text-primary`, `--color-accent`, `--color-success`, `--color-warning`, and `--color-error`.
+This snippet documents the current light palette; the app does not provide a separate dark palette. The exact token set should be generated and checked by Astryx rather than copied into individual components. Use semantic Astryx tokens such as `--color-background-body`, `--color-background-surface`, `--color-text-primary`, `--color-accent`, `--color-success`, `--color-warning`, and `--color-error`.
 
-## The 60–30–10 color rule
+## Color balance
 
-The “golden rule” is treated as a composition guideline, not a pixel-counting requirement. Adobe describes the classic 60–30–10 rule as 60% dominant color, 30% secondary color, and 10% accent color. [Adobe color guidance](https://www.adobe.com/uk/creativecloud/design/discover/complementary-colors.html)
+Keep the screen close to a 60–30–10 balance: neutral canvas for most of the view, white and muted surfaces for structure, and a small area of accent color for actions and state. Treat the percentages as a composition rule; do not add more colored panels just to hit an exact pixel count.
 
 For Nischit:
 
 | Proportion | Role | Astryx / Nischit application |
 |---|---|---|
-| 60% | Calm foundation | Butter body/surface tokens: warm light background, white cards, dark warm text. Most screens should be quiet. |
-| 30% | Supporting structure | Muted cream, pale blue, and pale green surfaces for sections, cards, tables, timelines, and workflow states. |
-| 10% | Attention and action | Astryx blue `#225BFF` for primary actions, links, selected navigation, and verified chain references. Use bright yellow/amber for warnings, not as the default CTA. |
+| 60% | Calm foundation | Neutral canvas `#F6F7F9` and dark text. Most screens should be quiet. |
+| 30% | Supporting structure | White `#FFFFFF` surfaces and subtle neutral dividers, with muted blue surfaces only for selected or informational states. |
+| 10% maximum | Attention and action | Nischit blue `#315DE8` for primary actions and selected navigation. Green, amber, and red are reserved for clearly labeled semantic statuses. |
 
 Use status colors only for status:
 
@@ -95,23 +95,25 @@ Do not use red and green as the only distinction. WCAG requires that color not b
 
 ## Visual language
 
-### Typography
+### Typography and scale
 
-- **Outfit:** all operational UI, headings, labels, and body copy.
+- **Plus Jakarta Sans:** all headings, labels, buttons, and body copy.
 - **JetBrains Mono:** lot IDs, PO IDs, device IDs, hashes, transaction references, and code-like values only.
+- Load only those two font families. Display headings use the same sans face as body text; do not introduce a separate serif or decorative font.
+- Use a compact type scale of 12, 14, 16, 20, 26, and 42px. The larger steps follow the golden ratio. Public hero headings reach 42px on wide screens and reduce responsively on phones; workspace page titles use 26px. The wordmark may use 18px to retain brand hierarchy.
 - Keep body text comfortable and plain. Avoid decorative type in the laboratory console.
 - Use sentence case and action-oriented labels: “Accept shipment,” “Hold settlement,” “Add consumption,” “Quarantine lot.”
 
 ### Shape and spacing
 
-Use Astryx's token scale:
+Use a compact spacing scale that rounds golden-ratio steps to practical values:
 
-- 4px base spacing increments;
-- 8px element radius;
-- 12px container radius;
-- 24px page radius only for larger shells or marketing surfaces;
+- 4, 6, 10, 16, 26, and 42px spacing values;
+- 8px control radius and 12px panel radius;
 - 40px standard controls and 48px touch-first controls;
-- 1px borders with shadows used sparingly.
+- 1px borders and neutral shadows used sparingly; no gradient backgrounds, decorative color glows, or text gradients.
+
+For two-column layouts, give the primary reading area about 1.618 times the supporting area's width. Stack the columns at tablet widths and below.
 
 Receiving screens should use larger touch targets and clear one-action rows. Dense QA and finance screens may use compact tables, but never compress the approval controls or exception reason field.
 
@@ -174,6 +176,10 @@ Motion should clarify state transitions rather than decorate the dashboard:
 - Astryx primitive used before custom markup.
 - Semantic tokens used instead of raw colors in components.
 - 60–30–10 hierarchy is visible without making the UI yellow or noisy.
+- Two font families, one sans family for interface text and one mono family for identifiers.
+- Main two-column layouts follow a 1.618:1 proportion and collapse cleanly on mobile.
+- No gradients or decorative glows appear in the interface.
+- Spacing and type sizes use the documented compact scales.
 - Text contrast passes WCAG AA.
 - Status has text/icon/pattern support, not color alone.
 - Keyboard focus is visible.

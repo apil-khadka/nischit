@@ -183,21 +183,15 @@ export function HeroSpecimenArtifact() {
               </div>
               <div className="telemetry-graph-visual">
                 <svg viewBox="0 0 400 70" className="telemetry-svg" aria-label="Continuous temperature graph showing -20.4 degrees">
-                  <defs>
-                    <linearGradient id="safeBand" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.15" />
-                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                    </linearGradient>
-                  </defs>
-                  <rect x="0" y="15" width="400" height="40" fill="url(#safeBand)" />
+                  <rect x="0" y="15" width="400" height="40" fill="#ecfdf5" />
                   <line x1="0" y1="35" x2="400" y2="35" stroke="#10b981" strokeDasharray="3 3" strokeWidth="1" />
                   <path
                     d="M 0,34 Q 40,32 80,36 T 160,34 T 240,35 T 320,33 T 400,34"
                     fill="none"
-                    stroke="#1d4ed8"
+                    stroke="#315de8"
                     strokeWidth="2.5"
                   />
-                  <circle cx="400" cy="34" r="4" fill="#1d4ed8" />
+                  <circle cx="400" cy="34" r="4" fill="#315de8" />
                 </svg>
               </div>
               <div className="chart-footer-labels">

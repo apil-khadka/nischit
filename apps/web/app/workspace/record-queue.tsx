@@ -7,8 +7,12 @@ const statusVariant = (state: string): "neutral" | "info" | "success" | "warning
   return "info";
 };
 
+function formatStateLabel(state: string): string {
+  return state.split("_").map((word) => word.toLowerCase() === "qa" ? "QA" : `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`).join(" ");
+}
+
 export function StateMark({ state }: { state: string }) {
-  const label = state.replaceAll("_", " ");
+  const label = formatStateLabel(state);
   return (
     <span className={`record-status record-status-${statusVariant(state)}`}>
       <span className="record-status-dot" aria-hidden="true" />
@@ -69,7 +73,7 @@ export function RecordQueue({
             <button
               type="button"
               className={`record-queue-item ${selected ? "selected" : ""}`}
-              aria-label={`Review ${row.subject}, ${row.state.replaceAll("_", " ")}`}
+              aria-label={`Review ${row.subject}, ${formatStateLabel(row.state)}`}
               onClick={() => onSelect(row)}
             >
               <span className="record-queue-copy">

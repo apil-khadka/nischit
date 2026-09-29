@@ -74,7 +74,8 @@ export function ComparisonTable({
         The table describes records represented by the current implementation. It does not claim measured time or cost savings.
       </SectionIntro>
 
-      <div className="comparison-table-wrapper">
+      <p className="comparison-table-scroll-note">Swipe horizontally to view all columns.</p>
+      <div className="comparison-table-wrapper" role="region" aria-label="Current capabilities comparison" tabIndex={0}>
         <table className="comparison-table">
           <thead>
             <tr>
