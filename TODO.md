@@ -11,7 +11,7 @@ This is the active work list. The [roadmap](docs/roadmap.md) explains the produc
 
 ## Documentation and contributor workflow
 
-- [ ] Select the canonical documentation URL and configure hosting for the VitePress build.
+- [ ] Enable GitHub Pages with GitHub Actions as the source and confirm the first docs deployment.
 - [ ] Keep page metadata, links, and sidebar navigation aligned when pages change.
 - [ ] Make behavior-guide changes easy to propose and trace through the matching implementation and automated checks.
 

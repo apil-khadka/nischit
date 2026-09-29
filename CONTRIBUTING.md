@@ -41,7 +41,7 @@ Do not commit generated output, local environment files, or unrelated formatting
 
 ## Documentation
 
-Documentation pages live under `docs/` and are the source for a VitePress site. Start the local site with `pnpm docs:dev`; verify a production build with `pnpm docs:build`. Each Markdown page needs `title`, `description`, and `docType` frontmatter. Use the [documentation index](docs/README.md) to choose the right page type and placement, and keep the sidebar in `docs/.vitepress/config.mts` aligned with the page map. Update the [plain-language test guide](docs/test-guide.md) first when changing expected product behavior, then align implementation and automated checks with those statements.
+Documentation pages live under `docs/` and are the source for a VitePress site. Start the local site with `pnpm docs:dev`; verify a production build with `pnpm docs:build`. Each Markdown page needs `title`, `description`, and `docType` frontmatter. Use the [documentation index](docs/README.md) to choose the right page type and placement, and keep the sidebar in `docs/.vitepress/config.mts` aligned with the page map. The separate Pages workflow publishes only the documentation output after docs changes reach `main`. Update the [plain-language test guide](docs/test-guide.md) first when changing expected product behavior, then align implementation and automated checks with those statements.
 
 ## Pull requests
 

@@ -45,4 +45,6 @@ When expected product behavior changes, edit the [plain-language test guide](tes
 
 Each page has YAML frontmatter for the documentation site. Use one of the page types above and add the page to the matching group in `docs/.vitepress/config.mts`. Run `pnpm check:docs` for metadata validation and `pnpm docs:build` to check the site.
 
+The GitHub Pages workflow builds and publishes only `docs/.vitepress/dist` when documentation changes reach `main`. Enable GitHub Pages with GitHub Actions as its source before the first deployment; this is tracked in the root [TODO](https://github.com/apil-khadka/nischit/blob/main/TODO.md).
+
 Do not include credentials, patient information, customer records, or confidential supplier documents in examples or documentation.

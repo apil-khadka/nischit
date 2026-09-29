@@ -14,7 +14,7 @@ This repository contains an evolving implementation of the lab-supply workflow, 
 
 - pnpm TypeScript workspace with a domain package, NestJS/Fastify API, and Next.js/Astryx web app.
 - Modular condition-evidence assessment and workspace UI panels, with explicit no-`any` and documentation metadata checks in the contributor workflow.
-- VitePress documentation site sourced from the Markdown under `docs/`; CI builds the site and checks its page metadata.
+- VitePress documentation site sourced from the Markdown under `docs/`; CI checks page metadata and site links, and a docs-only GitHub Pages workflow publishes the generated site when documentation changes on `main`.
 - Pure domain engine for tenant memberships, collaboration grants, products, versioned PO policy, supplier acknowledgement, funding, lot/shipment declaration, condition evidence, receiving, QA decisions, usage, quarantine/recall, mock settlement, and public verification receipts.
 - Append-only inventory transfers between sites, expiry- and recall-blocked usage/settlement, and authorized quarantine release with conservation tests.
 - Goods receipts retain their receiving site plus accepted/rejected quantity projections; QA cannot decide against a different site.

@@ -1,6 +1,12 @@
+import { env } from "node:process";
 import { defineConfig } from "vitepress";
 
+const base = env.GITHUB_ACTIONS === "true"
+  ? `/${env.GITHUB_REPOSITORY?.split("/")[1] ?? "nischit"}/`
+  : "/";
+
 export default defineConfig({
+  base,
   title: "Nischit Documentation",
   description: "Product, contributor, operator, and architecture documentation for Nischit.",
   cleanUrls: true,
