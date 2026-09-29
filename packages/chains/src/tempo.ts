@@ -5,6 +5,7 @@ import {
   http,
   keccak256,
   parseAbi,
+  parseAbiItem,
   parseEventLogs,
   toHex,
   TransactionNotFoundError,
@@ -13,7 +14,7 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { ChainVerification, PaymentRail, PurchaseOrder, Settlement } from "@nischit/domain";
+import { PaymentNotSubmittedError, type ChainVerification, type PaymentRail, type PurchaseOrder, type Settlement } from "@nischit/domain";
 
 const tokenAbi = parseAbi([
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -29,6 +30,9 @@ const escrowAbi = parseAbi([
 ]);
 
 const settlementRef = (purchaseOrder: PurchaseOrder): Hex => keccak256(toHex(purchaseOrder.settlementReference));
+const fundedEventAbi = parseAbiItem("event Funded(bytes32 indexed orderRef,address indexed buyer,address indexed supplier,address token,uint256 amount)");
+const settledEventAbi = parseAbiItem("event Settled(bytes32 indexed orderRef,uint256 supplierAmount,uint256 buyerCredit)");
+const refundedEventAbi = parseAbiItem("event Refunded(bytes32 indexed orderRef,uint256 amount)");
 
 export interface TempoRailConfig {
   rpcUrl: string;
@@ -38,6 +42,8 @@ export interface TempoRailConfig {
   tokenAddresses: Record<string, Address>;
   supplierAddresses: Record<string, Address>;
   confirmations?: number;
+  /** Inclusive deployment block used to recover submitted hashes after a process crash. */
+  deploymentBlock: bigint;
 }
 
 /**
@@ -66,28 +72,36 @@ export class TempoPaymentRail implements PaymentRail {
     this.confirmations = config.confirmations ?? 1;
   }
 
-  async fund(input: { purchaseOrder: PurchaseOrder }) {
+  async fund(input: { purchaseOrder: PurchaseOrder; onSubmitted?: (paymentReference: string) => Promise<void> | void }) {
     const token = this.config.tokenAddresses[input.purchaseOrder.token];
-    if (!token) throw new Error(`No Tempo token configured for ${input.purchaseOrder.token}`);
-    const tx = await this.wallet.writeContract({
-      address: token,
-      abi: tokenAbi,
-      functionName: "approve",
-      args: [this.config.escrowAddress, input.purchaseOrder.amountBaseUnits],
-    });
-    await this.publicClient.waitForTransactionReceipt({ hash: tx, confirmations: this.confirmations });
+    const supplier = this.config.supplierAddresses[input.purchaseOrder.supplierTenantId];
+    if (!token) throw new PaymentNotSubmittedError(`No Tempo token configured for ${input.purchaseOrder.token}; funding was not submitted`);
+    if (!supplier) throw new PaymentNotSubmittedError(`No Tempo supplier address configured for ${input.purchaseOrder.supplierTenantId}; funding was not submitted`);
+    let approval: Hex;
+    try {
+      approval = await this.wallet.writeContract({
+        address: token,
+        abi: tokenAbi,
+        functionName: "approve",
+        args: [this.config.escrowAddress, input.purchaseOrder.amountBaseUnits],
+      });
+      await this.publicClient.waitForTransactionReceipt({ hash: approval, confirmations: this.confirmations });
+    } catch {
+      throw new PaymentNotSubmittedError("Token approval did not complete; no escrow funding transaction was submitted");
+    }
     const reference = settlementRef(input.purchaseOrder);
     const escrowTx = await this.wallet.writeContract({
       address: this.config.escrowAddress,
       abi: escrowAbi,
       functionName: "fund",
-      args: [reference, token, this.supplier(input.purchaseOrder.supplierTenantId), input.purchaseOrder.amountBaseUnits],
+      args: [reference, token, supplier, input.purchaseOrder.amountBaseUnits],
     });
+    await input.onSubmitted?.(escrowTx);
     await this.publicClient.waitForTransactionReceipt({ hash: escrowTx, confirmations: this.confirmations });
     return { paymentReference: escrowTx };
   }
 
-  async settle(input: { purchaseOrder: PurchaseOrder; settlement: Settlement; supplierTenantId: string }) {
+  async settle(input: { purchaseOrder: PurchaseOrder; settlement: Settlement; supplierTenantId: string; onSubmitted?: (paymentReference: string) => Promise<void> | void }) {
     const tx = await this.wallet.writeContract({
       address: this.config.escrowAddress,
       abi: escrowAbi,
@@ -98,26 +112,52 @@ export class TempoPaymentRail implements PaymentRail {
         input.settlement.buyerCreditBaseUnits ?? 0n,
       ],
     });
+    await input.onSubmitted?.(tx);
     await this.publicClient.waitForTransactionReceipt({ hash: tx, confirmations: this.confirmations });
     return { paymentReference: tx };
   }
 
-  async refund(input: { purchaseOrder: PurchaseOrder; settlement: Settlement }) {
+  async refund(input: { purchaseOrder: PurchaseOrder; settlement: Settlement; onSubmitted?: (paymentReference: string) => Promise<void> | void }) {
     const tx = await this.wallet.writeContract({
       address: this.config.escrowAddress,
       abi: escrowAbi,
       functionName: "refund",
       args: [settlementRef(input.purchaseOrder)],
     });
+    await input.onSubmitted?.(tx);
     await this.publicClient.waitForTransactionReceipt({ hash: tx, confirmations: this.confirmations });
     return { paymentReference: tx };
   }
 
   async verify(input: { purchaseOrder: PurchaseOrder; settlement: Settlement }): Promise<ChainVerification> {
-    const reference = input.settlement.paymentReference;
-    const base = { rail: "tempo" as const, ...(reference ? { reference } : {}), network: `chain ${this.config.chainId}` };
-    if (!reference || !/^0x[0-9a-f]{64}$/i.test(reference)) {
-      return { ...base, status: "unavailable", detail: "No Tempo transaction hash is recorded for the latest payment action." };
+    let reference = input.settlement.paymentReference;
+    const orderRef = settlementRef(input.purchaseOrder).toLowerCase();
+    const action = input.settlement.pendingAction ??
+      (input.settlement.status === "confirmed" ? "settle" : input.settlement.status === "refunded" ? "refund" : "fund");
+    const expectedEvent = action === "settle" ? "Settled" : action === "refund" ? "Refunded" : "Funded";
+    if (!reference) {
+      try {
+        const fromBlock = this.config.deploymentBlock;
+        const [fundLogs, settleLogs, refundLogs] = await Promise.all([
+          this.publicClient.getLogs({ address: this.config.escrowAddress, event: fundedEventAbi, args: { orderRef: orderRef as Hex }, fromBlock }),
+          this.publicClient.getLogs({ address: this.config.escrowAddress, event: settledEventAbi, args: { orderRef: orderRef as Hex }, fromBlock }),
+          this.publicClient.getLogs({ address: this.config.escrowAddress, event: refundedEventAbi, args: { orderRef: orderRef as Hex }, fromBlock }),
+        ]);
+        const logs = [...fundLogs, ...settleLogs, ...refundLogs];
+        const recovered = parseEventLogs({ abi: escrowAbi, logs, strict: false }).find((log) =>
+          log.eventName === expectedEvent && (log.args as { orderRef?: Hex }).orderRef?.toLowerCase() === orderRef,
+        );
+        reference = recovered?.transactionHash;
+      } catch {
+        return { rail: "tempo", network: `chain ${this.config.chainId}`, status: "unverifiable", detail: "Tempo could not recover the submitted transaction." };
+      }
+      if (!reference) {
+        return { rail: "tempo", network: `chain ${this.config.chainId}`, status: "pending", detail: "No matching escrow event is visible yet; the payment intent must not be resubmitted." };
+      }
+    }
+    const base = { rail: "tempo" as const, reference, network: `chain ${this.config.chainId}` };
+    if (!/^0x[0-9a-f]{64}$/i.test(reference)) {
+      return { ...base, status: "unavailable", detail: "The Tempo payment reference is not a transaction hash." };
     }
     try {
       const [chainId, receipt, transaction, blockNumber] = await Promise.all([
@@ -132,14 +172,11 @@ export class TempoPaymentRail implements PaymentRail {
       }
       const confirmations = Number(blockNumber - receipt.blockNumber + 1n);
       if (receipt.status !== "success") return { ...base, status: "failed", block: receipt.blockNumber.toString(), confirmations, detail: "Tempo transaction reverted." };
-      const orderRef = settlementRef(input.purchaseOrder).toLowerCase();
       const events = parseEventLogs({ abi: escrowAbi, logs: receipt.logs, strict: false }).filter((log) => log.address.toLowerCase() === this.config.escrowAddress.toLowerCase());
       const matchingOrder = (args: unknown) => (args as { orderRef?: Hex }).orderRef?.toLowerCase() === orderRef;
       const funded = events.find((log) => log.eventName === "Funded" && matchingOrder(log.args));
       const settled = events.find((log) => log.eventName === "Settled" && matchingOrder(log.args));
       const refunded = events.find((log) => log.eventName === "Refunded" && matchingOrder(log.args));
-      const expectedEvent = input.settlement.status === "confirmed" ? "Settled"
-        : input.settlement.status === "refunded" ? "Refunded" : "Funded";
       const event = expectedEvent === "Settled" && settled ? "Settled"
         : expectedEvent === "Refunded" && refunded ? "Refunded"
           : expectedEvent === "Funded" && funded ? "Funded" : undefined;
@@ -170,11 +207,5 @@ export class TempoPaymentRail implements PaymentRail {
       if (error instanceof TransactionReceiptNotFoundError || error instanceof TransactionNotFoundError) return { ...base, status: "pending", detail: "Tempo has not included this transaction in a block yet." };
       return { ...base, status: "unverifiable", detail: error instanceof Error ? `Tempo RPC verification failed: ${error.message}` : "Tempo RPC verification failed." };
     }
-  }
-
-  private supplier(tenantId: string): Address {
-    const address = this.config.supplierAddresses[tenantId];
-    if (!address) throw new Error(`No Tempo supplier address configured for ${tenantId}`);
-    return address;
   }
 }

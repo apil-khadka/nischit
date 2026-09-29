@@ -53,13 +53,13 @@ The API exposes `GET /api/health` for liveness and `GET /api/health/ready` for r
 
 ## Storage and evidence
 
-The application uses an `ObjectStore` interface backed by an S3-compatible client. RustFS is suitable for local development; Cloudflare R2 or another compatible service can be configured for hosted environments. Keep buckets private, use tenant-scoped object keys, verify hashes, configure exact CORS origins, and test upload, presigning, retrieval, retention, and deletion policies against the selected provider.
+The application uses an `ObjectStore` interface backed by an S3-compatible client. RustFS is suitable for local development; Cloudflare R2 or another compatible service can be configured for hosted environments. Keep buckets private, use tenant-scoped immutable object keys, verify hashes, configure exact CORS origins, and test conditional upload, presigning, retrieval, retention, and deletion policies against the selected provider. Buyer QA download links are issued only for files attached to the reviewed PO and only after the stored checksum is rechecked.
 
 The API accepts a constrained set of evidence formats and requires a private malware scanner in production. Keep scanner ports private. A storage endpoint or successful upload alone does not establish evidence authenticity or product quality.
 
 ## Payments and public attestations
 
-Mock payment and attestation adapters are for local development and automated verification. Production refuses mock rails. Do not enable a live adapter until the contract or service, signer custody, authorization rules, network, token, confirmation policy, privacy impact, and reconciliation process have been reviewed and exercised. Public-chain addresses and transaction metadata remain public; never publish patient, customer-confidential, or raw evidence data.
+Mock payment and attestation adapters are for local development and automated verification. Production refuses mock rails. Do not enable a live adapter until the contract or service, signer custody, authorization rules, network, token, confirmation policy, privacy impact, and reconciliation process have been reviewed and exercised. Tempo recovery also requires `TEMPO_ESCROW_DEPLOYMENT_BLOCK` to identify the configured contract deployment block so an intent without a saved transaction hash can be reconciled from its escrow event. Public-chain addresses and transaction metadata remain public; never publish patient, customer-confidential, or raw evidence data.
 
 For Nepal deployments, use an approved payment arrangement and obtain appropriate legal review. The presence of an adapter does not establish regulatory approval or authorize custody of funds.
 
@@ -71,7 +71,7 @@ Run migrations once per release with the privileged migration role after a backu
 
 ## Image publication
 
-On pushes to the default branch, `.github/workflows/publish-images.yml` publishes affected service images to GitHub Container Registry using the repository-scoped `GITHUB_TOKEN`. It does not deploy to an operator's infrastructure. Pull requests run verification but do not publish images. Configure package visibility and access for the intended consumers, then deploy reviewed immutable image tags through the operator's own release process.
+On pushes to the default branch, `.github/workflows/publish-images.yml` publishes affected service images to GitHub Container Registry using the configured `GHCR_TOKEN` secret. It does not deploy to an operator's infrastructure. Pull requests run verification but do not publish images. Configure package visibility and access for the intended consumers, then deploy reviewed immutable image tags through the operator's own release process.
 
 ## Operational monitoring
 

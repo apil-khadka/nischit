@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { S3ObjectStore, evidenceKey } from "./s3-store.js";
+import { EvidenceObjectAlreadyExistsError, S3ObjectStore, evidenceKey } from "./s3-store.js";
 
 const sha256 = (body: Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -23,6 +23,7 @@ describe("S3-compatible evidence store", () => {
     expect((send.mock.calls[0]![0] as PutObjectCommand).input).toMatchObject({
       Bucket: "evidence",
       Key: "tenants/tenant-a/evidence/object-1",
+      IfNoneMatch: "*",
       Metadata: { "tenant-id": "tenant-a", sha256: checksum },
     });
     await expect(store.putEvidence({
@@ -32,6 +33,19 @@ describe("S3-compatible evidence store", () => {
       body,
       sha256: "wrong",
     })).rejects.toThrow("checksum");
+  });
+
+  it("does not allow an evidence object identifier to overwrite an existing commitment", async () => {
+    const send = vi.fn().mockRejectedValue({ name: "PreconditionFailed", $metadata: { httpStatusCode: 412 } });
+    const store = new S3ObjectStore({ send }, "evidence");
+    const body = new TextEncoder().encode("first version");
+    await expect(store.putEvidence({
+      tenantId: "tenant-a",
+      objectId: "object-1",
+      contentType: "text/plain",
+      body,
+      sha256: sha256(body),
+    })).rejects.toBeInstanceOf(EvidenceObjectAlreadyExistsError);
   });
 
   it("rejects path traversal and verifies stored metadata on reads", async () => {

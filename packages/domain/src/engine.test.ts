@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { NischitEngine } from "./engine.js";
 import { DomainError, MockPaymentRail, MockPublicAttestationRail } from "./index.js";
+import type { AcceptancePolicy } from "./types.js";
 
-function setup() {
+function setup(policy: Partial<AcceptancePolicy> = {}) {
   const payment = new MockPaymentRail();
   const attestation = new MockPublicAttestationRail();
   const engine = new NischitEngine(payment, attestation);
@@ -32,6 +33,7 @@ function setup() {
     quantity: 20,
     amountBaseUnits: "100000",
     token: "TEST_USD",
+    policy: { maxTelemetryGapSeconds: 300, ...policy },
   });
   engine.createCollaborationGrant(buyerOwner, {
     receivingTenantId: supplier.id,
@@ -41,8 +43,8 @@ function setup() {
   return { engine, payment, attestation, buyer, supplier, buyerOwner, finance, receiver, qa, supplierManager, po, product };
 }
 
-async function fundedShipment() {
-  const context = setup();
+async function fundedShipment(policy: Partial<AcceptancePolicy> = {}) {
+  const context = setup(policy);
   await context.engine.acknowledgePurchaseOrder(context.supplierManager, context.po.id, "ack-1");
   await context.engine.fundPurchaseOrder(context.finance, context.po.id, "fund-1");
   const declared = context.engine.declareShipment(context.supplierManager, {
@@ -88,6 +90,43 @@ describe("Nischit domain workflow", () => {
     expect(report.status).toBe("insufficient_evidence");
   });
 
+  it("does not pass non-finite temperatures or a shipment window without sufficient telemetry", async () => {
+    const { engine, supplierManager, receiver, shipment } = await fundedShipment();
+    const report = engine.submitConditionEvidence(supplierManager, {
+      shipmentId: shipment.id,
+      readings: [
+        { sequence: 1, timestamp: shipment.dispatchedAt, temperatureCelsius: Number.NaN },
+        { sequence: 2, timestamp: new Date().toISOString(), temperatureCelsius: 4 },
+      ],
+      documents: [
+        { name: "invoice", sha256: "invoice-hash" },
+        { name: "coa", sha256: "coa-hash" },
+      ],
+    });
+    expect(report.status).toBe("insufficient_evidence");
+    engine.receiveShipment(receiver, { shipmentId: shipment.id, receivedQuantity: 20, siteId: "central" });
+    expect(report.status).toBe("insufficient_evidence");
+  });
+
+  it("marks evidence pass only after two valid readings cover dispatch through receipt", async () => {
+    const { engine, supplierManager, receiver, shipment } = await fundedShipment();
+    const report = engine.submitConditionEvidence(supplierManager, {
+      shipmentId: shipment.id,
+      readings: [
+        { sequence: 1, timestamp: shipment.dispatchedAt, temperatureCelsius: 4 },
+        { sequence: 2, timestamp: new Date().toISOString(), temperatureCelsius: 5 },
+      ],
+      documents: [
+        { name: "invoice", sha256: "invoice-hash" },
+        { name: "coa", sha256: "coa-hash" },
+      ],
+    });
+    expect(report.status).toBe("insufficient_evidence");
+    engine.receiveShipment(receiver, { shipmentId: shipment.id, receivedQuantity: 20, siteId: "central" });
+    expect(report.status).toBe("pass");
+    expect(report.coverageComplete).toBe(true);
+  });
+
   it("does not pass a claimed signed telemetry chain with a broken predecessor hash", async () => {
     const { engine, supplierManager, shipment } = await fundedShipment();
     const report = engine.submitConditionEvidence(supplierManager, {
@@ -99,33 +138,35 @@ describe("Nischit domain workflow", () => {
       documents: [{ name: "invoice", sha256: "invoice-hash" }, { name: "coa", sha256: "coa-hash" }],
     });
     expect(report.status).toBe("insufficient_evidence");
-    expect(report.signatureCoverage).toBe(1);
+    expect(report.signatureCoverage).toBe(0);
     expect(report.hashChainValid).toBe(false);
   });
 
   it("routes a temperature excursion to QA and requires a reason", async () => {
-    const { engine, supplierManager, receiver, qa, shipment } = await fundedShipment();
+    const { engine, supplierManager, receiver, qa, shipment } = await fundedShipment({ allowAdjustmentBps: true });
+    const start = Date.now() - 299_000;
     const report = engine.submitConditionEvidence(supplierManager, {
       shipmentId: shipment.id,
       readings: [
-        { sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", temperatureCelsius: 4 },
-        { sequence: 2, timestamp: "2026-01-01T00:05:00.000Z", temperatureCelsius: 9 },
-        { sequence: 3, timestamp: "2026-01-01T00:10:00.000Z", temperatureCelsius: 11 },
-        { sequence: 4, timestamp: "2026-01-01T00:20:00.000Z", temperatureCelsius: 4 },
+        { sequence: 1, timestamp: new Date(start).toISOString(), temperatureCelsius: 4 },
+        { sequence: 2, timestamp: new Date(start + 60_000).toISOString(), temperatureCelsius: 9 },
+        { sequence: 3, timestamp: new Date(start + 120_000).toISOString(), temperatureCelsius: 11 },
+        { sequence: 4, timestamp: new Date(start + 240_000).toISOString(), temperatureCelsius: 4 },
       ],
       documents: [
         { name: "invoice", sha256: "invoice-hash" },
         { name: "coa", sha256: "coa-hash" },
       ],
     });
-    expect(report.status).toBe("exception");
-    expect(report.firstReadingAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(report.lastReadingAt).toBe("2026-01-01T00:20:00.000Z");
+    expect(report.status).toBe("insufficient_evidence");
+    expect(report.firstReadingAt).toBe(new Date(start).toISOString());
+    expect(report.lastReadingAt).toBe(new Date(start + 240_000).toISOString());
     expect(report.averageTemperatureCelsius).toBe(7);
     expect(report.excursionCount).toBe(1);
-    expect(report.longestExcursionSeconds).toBe(300);
+    expect(report.longestExcursionSeconds).toBe(60);
     expect(report.telemetryMerkleRoot).toMatch(/^[a-f0-9]{64}$/);
     const receipt = engine.receiveShipment(receiver, { shipmentId: shipment.id, receivedQuantity: 20, siteId: "central" });
+    expect(report.status).toBe("exception");
     expect(() => engine.decideQA(qa, { receiptId: receipt.id, status: "accepted", reason: "Wrong site", siteId: "branch" }))
       .toThrowError(expect.objectContaining({ code: "CONFLICT" }));
     expect(() => engine.decideQA(qa, { receiptId: receipt.id, status: "accepted", reason: "", siteId: "central" }))
@@ -142,6 +183,38 @@ describe("Nischit domain workflow", () => {
     expect(settlement.supplierAmountBaseUnits).toBe(95000n);
     expect(settlement.buyerCreditBaseUnits).toBe(5000n);
     expect(settlement.supplierAmountBaseUnits! + settlement.buyerCreditBaseUnits!).toBe(settlement.amountBaseUnits);
+  });
+
+  it("keeps settlement held when QA chooses Hold", async () => {
+    const { engine, supplierManager, receiver, qa, finance, shipment, po } = await fundedShipment();
+    engine.submitConditionEvidence(supplierManager, { shipmentId: shipment.id, readings: [], documents: [] });
+    const receipt = engine.receiveShipment(receiver, { shipmentId: shipment.id, receivedQuantity: 20, siteId: "central" });
+    engine.decideQA(qa, { receiptId: receipt.id, status: "held", reason: "Review the missing logger interval", siteId: "central" });
+    expect(engine.snapshot().settlements[0]!.status).toBe("held");
+    await expect(engine.settle(finance, po.id)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects a QA discount when the agreed policy does not allow adjustments", async () => {
+    const { engine, supplierManager, receiver, qa, po } = setup({ allowAdjustmentBps: false });
+    await engine.acknowledgePurchaseOrder(supplierManager, po.id);
+    const finance = engine.actor("tenant-buyer", "buyer-finance");
+    await engine.fundPurchaseOrder(finance, po.id);
+    const declared = engine.declareShipment(supplierManager, {
+      purchaseOrderId: po.id,
+      manufacturerLotNumber: "HBA-NO-ADJUST",
+      expiryDate: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
+      quantity: 20,
+    });
+    engine.submitConditionEvidence(supplierManager, { shipmentId: declared.shipment.id, readings: [], documents: [] });
+    const receipt = engine.receiveShipment(receiver, { shipmentId: declared.shipment.id, receivedQuantity: 20, siteId: "central" });
+    expect(() => engine.decideQA(qa, {
+      receiptId: receipt.id,
+      status: "accepted_with_adjustment",
+      adjustmentBps: 500,
+      reason: "Supplier credit",
+      siteId: "central",
+    })).toThrowError(expect.objectContaining({ code: "CONFLICT" }));
+    expect(engine.snapshot().settlements[0]!.adjustmentBps).toBe(0);
   });
 
   it("keeps supplier access scoped and prevents supplier QA", async () => {
@@ -438,7 +511,7 @@ describe("Nischit domain workflow", () => {
     expect(payment.calls.filter((call) => call.startsWith("settle:"))).toHaveLength(1);
   });
 
-  it("marks a settlement unknown on a rail timeout and permits an explicit retry", async () => {
+  it("persists an unknown settlement and reconciles its submitted reference before retrying", async () => {
     const { engine, payment, supplierManager, finance, receiver, qa, shipment, po } = await fundedShipment();
     payment.failNextSettlement = true;
     engine.submitConditionEvidence(supplierManager, {
@@ -448,10 +521,12 @@ describe("Nischit domain workflow", () => {
     });
     const receipt = engine.receiveShipment(receiver, { shipmentId: shipment.id, receivedQuantity: 20, siteId: "central" });
     engine.decideQA(qa, { receiptId: receipt.id, status: "accepted", reason: "Pass", siteId: "central" });
-    await expect(engine.settle(finance, po.id, "settle-unknown")).rejects.toThrow("timeout");
+    await expect(engine.settle(finance, po.id, "settle-unknown")).rejects.toMatchObject({ code: "PAYMENT_OUTCOME_UNKNOWN" });
     expect(engine.snapshot().settlements[0]!.status).toBe("unknown");
+    expect(engine.snapshot().settlements[0]!.pendingAction).toBe("settle");
+    expect(engine.snapshot().settlements[0]!.paymentReference).toMatch(/^tempo-test-settle-/);
     await expect(engine.settle(finance, po.id, "settle-unknown")).resolves.toMatchObject({ status: "confirmed" });
-    expect(payment.calls.filter((call) => call.startsWith("settle:")).length).toBe(2);
+    expect(payment.calls.filter((call) => call.startsWith("settle:")).length).toBe(1);
   });
 
   it("does not treat Solana publication as payment confirmation", async () => {

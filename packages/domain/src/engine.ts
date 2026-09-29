@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { conflict, DomainError, forbidden, notFound } from "./errors.js";
+import { conflict, DomainError, forbidden, notFound, PaymentNotSubmittedError, PaymentOutcomeUnknownError } from "./errors.js";
 import type {
   AcceptancePolicy,
   Actor,
@@ -148,6 +148,7 @@ const defaultTenantSettings = (tenantId: string): TenantSettings => ({
 
 export class NischitEngine {
   private state: EngineSnapshot;
+  private persistenceCheckpoint?: () => Promise<void>;
 
   constructor(
     private readonly paymentRail: PaymentRail,
@@ -157,6 +158,11 @@ export class NischitEngine {
     this.state = snapshot
       ? {
         ...snapshot,
+        conditionReports: snapshot.conditionReports.map((report) => ({
+          ...report,
+          coverageComplete: report.coverageComplete ?? false,
+          evidenceIntegrityValid: report.evidenceIntegrityValid ?? false,
+        })),
         tenantSettings: snapshot.tenantSettings?.length
           ? snapshot.tenantSettings
           : snapshot.tenants.map((tenant) => defaultTenantSettings(tenant.id)),
@@ -188,10 +194,19 @@ export class NischitEngine {
     return structuredClone(this.state);
   }
 
+  setPersistenceCheckpoint(checkpoint: () => Promise<void>) {
+    this.persistenceCheckpoint = checkpoint;
+  }
+
   replaceSnapshot(snapshot: EngineSnapshot) {
     const cloned = structuredClone(snapshot);
     this.state = {
       ...cloned,
+      conditionReports: cloned.conditionReports.map((report) => ({
+        ...report,
+        coverageComplete: report.coverageComplete ?? false,
+        evidenceIntegrityValid: report.evidenceIntegrityValid ?? false,
+      })),
       tenantSettings: cloned.tenantSettings?.length
         ? cloned.tenantSettings
         : cloned.tenants.map((tenant) => defaultTenantSettings(tenant.id)),
@@ -237,6 +252,197 @@ export class NischitEngine {
         candidate.actions.includes(action),
     );
     if (!grant) throw forbidden(`Collaboration grant does not allow ${action}`);
+  }
+
+  private async checkpointPaymentIntent() {
+    await this.persistenceCheckpoint?.();
+  }
+
+  private async beginPaymentAction(
+    actor: Actor,
+    settlement: Settlement,
+    action: NonNullable<Settlement["pendingAction"]>,
+    metadata: Record<string, string | number | boolean> = {},
+  ) {
+    const previous = structuredClone(settlement);
+    const auditLength = this.state.audit.length;
+    settlement.paymentActionPreviousStatus = settlement.status;
+    settlement.pendingAction = action;
+    settlement.paymentReference = undefined;
+    settlement.status = "submitted";
+    this.record(actor, `settlement.${action}.intent.created`, "settlement", settlement.id, metadata);
+    try {
+      await this.checkpointPaymentIntent();
+    } catch (error) {
+      Object.assign(settlement, previous);
+      this.state.audit.length = auditLength;
+      throw error;
+    }
+  }
+
+  private async paymentSubmitted(settlement: Settlement, reference: string) {
+    settlement.paymentReference = reference;
+    await this.checkpointPaymentIntent();
+  }
+
+  private completePaymentAction(settlement: Settlement, action: NonNullable<Settlement["pendingAction"]>, reference?: string) {
+    if (reference) settlement.paymentReference = reference;
+    delete settlement.pendingAction;
+    delete settlement.paymentActionPreviousStatus;
+    if (action === "fund") settlement.status = "funded";
+    if (action === "settle") {
+      settlement.status = "confirmed";
+      settlement.confirmedAt = now();
+    }
+    if (action === "refund") {
+      settlement.status = "refunded";
+      settlement.supplierAmountBaseUnits = 0n;
+      settlement.buyerCreditBaseUnits = settlement.amountBaseUnits;
+    }
+  }
+
+  /** Reconcile durable in-flight state before any user-requested retry. */
+  private async reconcilePendingPayment(actor: Actor, po: PurchaseOrder, settlement: Settlement, action: NonNullable<Settlement["pendingAction"]>) {
+    if (!settlement.pendingAction || settlement.pendingAction !== action) {
+      throw conflict("A different payment action is awaiting reconciliation");
+    }
+    let verification;
+    try {
+      verification = await this.paymentRail.verify({ purchaseOrder: po, settlement });
+    } catch {
+      throw conflict("Payment remains unknown; reconcile it before retrying");
+    }
+    if (verification.status === "verified") {
+      const previous = structuredClone(settlement);
+      const previousPOStatus = po.status;
+      try {
+        this.completePaymentAction(settlement, action, verification.reference ?? settlement.paymentReference);
+        if (action === "fund") po.status = "funded";
+        this.record(actor, `settlement.${action}.reconciled`, "settlement", settlement.id);
+        await this.checkpointPaymentIntent();
+        return true;
+      } catch {
+        Object.assign(settlement, previous);
+        settlement.status = "unknown";
+        settlement.pendingAction = action;
+        po.status = previousPOStatus;
+        throw new PaymentOutcomeUnknownError();
+      }
+    }
+    if (verification.status === "failed") {
+      const previous = structuredClone(settlement);
+      const auditLength = this.state.audit.length;
+      settlement.status = settlement.paymentActionPreviousStatus ?? (action === "fund" ? "draft" : "authorized");
+      delete settlement.pendingAction;
+      delete settlement.paymentActionPreviousStatus;
+      delete settlement.paymentReference;
+      this.record(actor, `settlement.${action}.failed`, "settlement", settlement.id);
+      try {
+        await this.checkpointPaymentIntent();
+      } catch {
+        Object.assign(settlement, previous);
+        this.state.audit.length = auditLength;
+        throw new PaymentOutcomeUnknownError();
+      }
+      return false;
+    }
+    throw conflict(`Payment is ${verification.status}; reconcile it before retrying`);
+  }
+
+  private async markPaymentUnknown(
+    actor: Actor,
+    settlement: Settlement,
+    action: NonNullable<Settlement["pendingAction"]>,
+    previous: Settlement,
+    keepAuditThrough: number,
+    rollback?: () => void,
+  ): Promise<never> {
+    const paymentReference = settlement.paymentReference;
+    Object.assign(settlement, previous);
+    if (paymentReference) settlement.paymentReference = paymentReference;
+    else delete settlement.paymentReference;
+    settlement.status = "unknown";
+    settlement.pendingAction = action;
+    settlement.paymentActionPreviousStatus = previous.status;
+    this.state.audit.length = keepAuditThrough;
+    rollback?.();
+    this.record(actor, `settlement.${action}.unknown`, "settlement", settlement.id);
+    try {
+      await this.checkpointPaymentIntent();
+    } catch {
+      // The submitted intent was checkpointed before the rail call. Keep that
+      // durable record and let the next request reconcile chain state.
+    }
+    throw new PaymentOutcomeUnknownError();
+  }
+
+  private async markPaymentNotSubmitted(
+    actor: Actor,
+    settlement: Settlement,
+    action: NonNullable<Settlement["pendingAction"]>,
+    previous: Settlement,
+    keepAuditThrough: number,
+  ): Promise<never> {
+    Object.assign(settlement, previous);
+    this.state.audit.length = keepAuditThrough;
+    this.record(actor, `settlement.${action}.not_submitted`, "settlement", settlement.id);
+    try {
+      await this.checkpointPaymentIntent();
+    } catch {
+      settlement.status = "unknown";
+      settlement.pendingAction = action;
+      settlement.paymentActionPreviousStatus = previous.status;
+      delete settlement.paymentReference;
+      this.record(actor, `settlement.${action}.unknown`, "settlement", settlement.id);
+      try {
+        await this.checkpointPaymentIntent();
+      } catch {
+        // The previously saved intent remains available for manual reconciliation.
+      }
+      throw new PaymentOutcomeUnknownError();
+    }
+    throw new PaymentNotSubmittedError();
+  }
+
+  private assessConditionCoverage(report: ConditionReport, po: PurchaseOrder, shipment: Shipment, receivedAt?: string) {
+    const maxGap = po.policy.maxTelemetryGapSeconds;
+    const dispatchedAt = new Date(shipment.dispatchedAt).valueOf();
+    const firstReadingAt = report.firstReadingAt ? new Date(report.firstReadingAt).valueOf() : Number.NaN;
+    const lastReadingAt = report.lastReadingAt ? new Date(report.lastReadingAt).valueOf() : Number.NaN;
+    const receiptTime = receivedAt ? new Date(receivedAt).valueOf() : Number.NaN;
+    const gapMs = maxGap * 1000;
+    report.coverageComplete = Boolean(
+      receivedAt &&
+      report.evidenceIntegrityValid &&
+      report.readingCount >= 2 &&
+      Number.isFinite(maxGap) && maxGap > 0 &&
+      Number.isFinite(dispatchedAt) && Number.isFinite(firstReadingAt) &&
+      Number.isFinite(lastReadingAt) && Number.isFinite(receiptTime) &&
+      firstReadingAt <= dispatchedAt + gapMs &&
+      lastReadingAt <= receiptTime &&
+      lastReadingAt >= receiptTime - gapMs &&
+      report.maximumObservedGapSeconds !== undefined &&
+      report.maximumObservedGapSeconds <= maxGap,
+    );
+    if (!report.coverageComplete) {
+      report.status = "insufficient_evidence";
+      return;
+    }
+    const lot = this.state.lots.find((candidate) => candidate.id === shipment.lotId);
+    const shelfLifeDays = lot
+      ? Math.floor((new Date(lot.expiryDate).valueOf() - receiptTime) / 86_400_000)
+      : Number.NEGATIVE_INFINITY;
+    if (
+      report.minimumTemperatureCelsius === undefined ||
+      report.maximumTemperatureCelsius === undefined ||
+      report.minimumTemperatureCelsius < po.policy.minTemperatureCelsius ||
+      report.maximumTemperatureCelsius > po.policy.maxTemperatureCelsius ||
+      shelfLifeDays < po.policy.minShelfLifeDays
+    ) {
+      report.status = "exception";
+      return;
+    }
+    report.status = "pass";
   }
 
   private scopedIdempotencyKey(actor: Actor, key: string | undefined, operation: string) {
@@ -385,18 +591,43 @@ export class NischitEngine {
       );
       if (!product) throw notFound("Product not found");
       if (!Number.isInteger(input.quantity) || input.quantity <= 0) throw conflict("Quantity must be a positive integer");
+      if (!/^[0-9]+$/.test(input.amountBaseUnits)) throw conflict("Settlement amount must be a positive integer");
       const amount = BigInt(input.amountBaseUnits);
       if (amount <= 0n) throw conflict("Settlement amount must be positive");
+      const maxTelemetryGapSeconds = input.policy?.maxTelemetryGapSeconds;
+      if (!Number.isInteger(maxTelemetryGapSeconds) || (maxTelemetryGapSeconds ?? 0) <= 0) {
+        throw conflict("A positive product-specific maximum telemetry gap in seconds is required");
+      }
+      const minQuantity = input.policy?.minQuantity ?? input.quantity;
+      const maxQuantity = input.policy?.maxQuantity ?? input.quantity;
+      const minShelfLifeDays = input.policy?.minShelfLifeDays ?? product.minimumShelfLifeDays;
+      const minTemperatureCelsius = input.policy?.minTemperatureCelsius ?? product.storageMinCelsius;
+      const maxTemperatureCelsius = input.policy?.maxTemperatureCelsius ?? product.storageMaxCelsius;
+      const requiredDocuments = input.policy?.requiredDocuments ?? product.requiredDocuments;
+      if (!Number.isInteger(minQuantity) || minQuantity <= 0 || !Number.isInteger(maxQuantity) || maxQuantity < input.quantity || minQuantity > input.quantity) {
+        throw conflict("Purchase-order quantity limits must be positive whole numbers and include the ordered quantity");
+      }
+      if (!Number.isInteger(minShelfLifeDays) || minShelfLifeDays < 0) throw conflict("Minimum shelf life must be a non-negative whole number of days");
+      if (!Number.isFinite(minTemperatureCelsius) || !Number.isFinite(maxTemperatureCelsius) || minTemperatureCelsius > maxTemperatureCelsius) {
+        throw conflict("Temperature limits must be finite and ordered");
+      }
+      if (!Array.isArray(requiredDocuments) || requiredDocuments.some((document) => typeof document !== "string" || !document.trim())) {
+        throw conflict("Required document names must be non-empty strings");
+      }
+      if (input.policy?.allowAdjustmentBps !== undefined && typeof input.policy.allowAdjustmentBps !== "boolean") {
+        throw conflict("Adjustment authority must be explicitly true or false");
+      }
       const policy: AcceptancePolicy = {
         version: 1,
         productId: product.id,
-        minQuantity: input.policy?.minQuantity ?? input.quantity,
-        maxQuantity: input.policy?.maxQuantity ?? input.quantity,
-        minShelfLifeDays: input.policy?.minShelfLifeDays ?? product.minimumShelfLifeDays,
-        minTemperatureCelsius: input.policy?.minTemperatureCelsius ?? product.storageMinCelsius,
-        maxTemperatureCelsius: input.policy?.maxTemperatureCelsius ?? product.storageMaxCelsius,
-        requiredDocuments: input.policy?.requiredDocuments ?? product.requiredDocuments,
-        allowAdjustmentBps: input.policy?.allowAdjustmentBps ?? true,
+        minQuantity,
+        maxQuantity,
+        minShelfLifeDays,
+        minTemperatureCelsius,
+        maxTemperatureCelsius,
+        maxTelemetryGapSeconds: maxTelemetryGapSeconds!,
+        requiredDocuments,
+        allowAdjustmentBps: input.policy?.allowAdjustmentBps ?? false,
       };
       const termsNonce = randomUUID();
       const termsHash = hash({
@@ -463,13 +694,30 @@ export class NischitEngine {
       if (!hasAnyRole(actor, ["owner", "admin", "finance"])) throw forbidden("Only finance can fund a PO");
       if (po.status !== "acknowledged") throw conflict("Supplier must acknowledge the agreed terms before funding");
       const settlement = this.getSettlement(po.id);
+      if (settlement.status === "unknown" || settlement.status === "submitted") {
+        if (await this.reconcilePendingPayment(actor, po, settlement, "fund")) return settlement;
+      }
       if (settlement.status !== "draft") throw conflict("Settlement is not awaiting funding");
-      const funded = await this.paymentRail.fund({ purchaseOrder: po });
-      settlement.status = "funded";
-      settlement.paymentReference = funded.paymentReference;
-      po.status = "funded";
-      this.record(actor, "settlement.funded", "settlement", settlement.id);
-      return settlement;
+      const previous = structuredClone(settlement);
+      await this.beginPaymentAction(actor, settlement, "fund");
+      const keepAuditThrough = this.state.audit.length;
+      try {
+        const funded = await this.paymentRail.fund({
+          purchaseOrder: po,
+          onSubmitted: (reference) => this.paymentSubmitted(settlement, reference),
+        });
+        await this.paymentSubmitted(settlement, funded.paymentReference);
+        this.completePaymentAction(settlement, "fund", funded.paymentReference);
+        po.status = "funded";
+        this.record(actor, "settlement.funded", "settlement", settlement.id);
+        await this.checkpointPaymentIntent();
+        return settlement;
+      } catch (error) {
+        if (error instanceof PaymentNotSubmittedError) {
+          return this.markPaymentNotSubmitted(actor, settlement, "fund", previous, keepAuditThrough);
+        }
+        return this.markPaymentUnknown(actor, settlement, "fund", previous, keepAuditThrough, () => { po.status = "acknowledged"; });
+      }
     });
   }
 
@@ -529,15 +777,21 @@ export class NischitEngine {
         (count, reading, index) => count + (index > 0 && reading.sequence !== sequences[index - 1]!.sequence + 1 ? 1 : 0),
         0,
       );
-      const invalidTimestamp = sequences.some((reading, index) => {
-        const timestamp = new Date(reading.timestamp).valueOf();
-        const previousTimestamp = index > 0 ? new Date(sequences[index - 1]!.timestamp).valueOf() : undefined;
-        return Number.isNaN(timestamp) || (previousTimestamp !== undefined && timestamp < previousTimestamp);
-      });
+      const timestampValues = sequences.map((reading) => new Date(reading.timestamp).valueOf());
+      const timestampsValid = timestampValues.every((timestamp, index) =>
+        Number.isFinite(timestamp) && (index === 0 || timestamp >= timestampValues[index - 1]!),
+      );
+      const invalidTimestamp = !timestampsValid;
+      const invalidMeasurement = sequences.some((reading) =>
+        !Number.isFinite(reading.temperatureCelsius) ||
+        (reading.humidityPercent !== undefined && (!Number.isFinite(reading.humidityPercent) || reading.humidityPercent < 0 || reading.humidityPercent > 100)) ||
+        (reading.batteryPercent !== undefined && (!Number.isFinite(reading.batteryPercent) || reading.batteryPercent < 0 || reading.batteryPercent > 100)),
+      );
       const chainClaimed = sequences.some((reading) => reading.deviceId !== undefined || reading.previousHash !== undefined);
       const signatureClaimed = chainClaimed || sequences.some((reading) => reading.signature !== undefined);
-      const signedReadingCount = sequences.filter((reading) => typeof reading.signature === "string" && reading.signature.length > 0).length;
-      const signatureCoverage = sequences.length ? signedReadingCount / sequences.length : 0;
+      // No device-key resolver is configured. A supplied signature is an
+      // unverified claim and must not increase verified signature coverage.
+      const signatureCoverage = 0;
       const deviceIds = new Set(sequences.map((reading) => reading.deviceId).filter((deviceId): deviceId is string => Boolean(deviceId)));
       const hashChainValid = !chainClaimed || (
         deviceIds.size === 1 &&
@@ -548,22 +802,13 @@ export class NischitEngine {
       const temperatures = sequences.map((reading) => reading.temperatureCelsius);
       const expiry = this.state.lots.find((lot) => lot.id === shipment.lotId)?.expiryDate;
       if (!expiry) throw notFound("Lot not found");
-      const shelfLifeDays = Math.floor((new Date(expiry).valueOf() - Date.now()) / 86_400_000);
       const requiredDocumentsPresent = po.policy.requiredDocuments.every((name) =>
         input.documents.some((document) => document.name === name && document.sha256.length > 0),
       );
-      let status: ConditionReport["status"] = "pass";
-      if (
-        sequences.length === 0 || invalidSequence || invalidTimestamp || missingSequenceCount > 0 || !requiredDocumentsPresent ||
-        !hashChainValid || (signatureClaimed && signatureCoverage < 1)
-      ) status = "insufficient_evidence";
-      else if (
-        Math.min(...temperatures) < po.policy.minTemperatureCelsius ||
-        Math.max(...temperatures) > po.policy.maxTemperatureCelsius ||
-        shelfLifeDays < po.policy.minShelfLifeDays
-      ) {
-        status = "exception";
-      }
+      const evidenceIntegrityValid = sequences.length > 0 && !invalidSequence && !invalidTimestamp &&
+        !invalidMeasurement && missingSequenceCount === 0 && requiredDocumentsPresent &&
+        hashChainValid && !signatureClaimed && Number.isInteger(po.policy.maxTelemetryGapSeconds) &&
+        po.policy.maxTelemetryGapSeconds > 0;
       const excursionReadings = sequences.map((reading) =>
         reading.temperatureCelsius < po.policy.minTemperatureCelsius || reading.temperatureCelsius > po.policy.maxTemperatureCelsius,
       );
@@ -574,9 +819,9 @@ export class NischitEngine {
       excursionReadings.forEach((isExcursion, index) => {
         if (isExcursion && !excursionReadings[index - 1]) {
           excursionCount += 1;
-          excursionStart = new Date(sequences[index]!.timestamp).valueOf();
+          if (timestampsValid) excursionStart = timestampValues[index]!;
         }
-        if (isExcursion) excursionEnd = new Date(sequences[index]!.timestamp).valueOf();
+        if (isExcursion && timestampsValid) excursionEnd = timestampValues[index]!;
         if (!isExcursion && excursionReadings[index - 1] && excursionStart !== undefined && excursionEnd !== undefined) {
           longestExcursionSeconds = Math.max(longestExcursionSeconds, Math.max(0, excursionEnd - excursionStart) / 1000);
           excursionStart = undefined;
@@ -586,22 +831,31 @@ export class NischitEngine {
       if (excursionStart !== undefined && excursionEnd !== undefined) {
         longestExcursionSeconds = Math.max(longestExcursionSeconds, Math.max(0, excursionEnd - excursionStart) / 1000);
       }
+      const maximumObservedGapSeconds = timestampsValid && sequences.length > 1
+        ? Math.max(...sequences.slice(1).map((reading, index) =>
+          (timestampValues[index + 1]! - timestampValues[index]!) / 1000,
+        ))
+        : undefined;
+      const validTemperatures = temperatures.filter(Number.isFinite);
       const readingHashes = sequences.map((reading) => hash(reading));
       const report: ConditionReport = {
         id: randomUUID(),
         shipmentId: shipment.id,
-        status,
+        status: "insufficient_evidence",
         readingCount: sequences.length,
         firstReadingAt: sequences[0]?.timestamp,
         lastReadingAt: sequences.at(-1)?.timestamp,
-        minimumTemperatureCelsius: temperatures.length ? Math.min(...temperatures) : undefined,
-        maximumTemperatureCelsius: temperatures.length ? Math.max(...temperatures) : undefined,
-        averageTemperatureCelsius: temperatures.length
-          ? Math.round((temperatures.reduce((sum, temperature) => sum + temperature, 0) / temperatures.length) * 100) / 100
+        minimumTemperatureCelsius: validTemperatures.length ? Math.min(...validTemperatures) : undefined,
+        maximumTemperatureCelsius: validTemperatures.length ? Math.max(...validTemperatures) : undefined,
+        averageTemperatureCelsius: validTemperatures.length
+          ? Math.round((validTemperatures.reduce((sum, temperature) => sum + temperature, 0) / validTemperatures.length) * 100) / 100
           : undefined,
         excursionCount,
         longestExcursionSeconds,
         missingSequenceCount,
+        ...(maximumObservedGapSeconds !== undefined ? { maximumObservedGapSeconds } : {}),
+        coverageComplete: false,
+        evidenceIntegrityValid,
         signatureCoverage,
         hashChainValid,
         documents: input.documents,
@@ -609,6 +863,8 @@ export class NischitEngine {
         telemetryMerkleRoot: merkleRoot(readingHashes),
         createdAt: now(),
       };
+      const existingReceipt = this.state.receipts.find((receipt) => receipt.shipmentId === shipment.id);
+      this.assessConditionCoverage(report, po, shipment, existingReceipt?.receivedAt);
       this.state.conditionReports.push(report);
       this.record(actor, "condition.evidence.submitted", "condition_report", report.id, { status });
       return report;
@@ -641,6 +897,8 @@ export class NischitEngine {
       po.status = "received";
       const settlement = this.getSettlement(po.id);
       settlement.status = "awaiting_qa";
+      const conditionReport = [...this.state.conditionReports].reverse().find((report) => report.shipmentId === shipment.id);
+      if (conditionReport) this.assessConditionCoverage(conditionReport, po, shipment, receipt.receivedAt);
       this.record(actor, "goods_receipt.created", "goods_receipt", receipt.id, { siteId: input.siteId });
       return receipt;
     });
@@ -665,10 +923,19 @@ export class NischitEngine {
         return shipment?.id === receipt.shipmentId;
       });
       if (!report) throw conflict("Condition evidence is required before QA");
+      const po = this.getPO(receipt.purchaseOrderId);
       const adjustmentBps = input.adjustmentBps ?? 0;
-      if (adjustmentBps < 0 || adjustmentBps > 10_000) throw conflict("Adjustment must be between 0 and 10000 bps");
+      if (!Number.isInteger(adjustmentBps) || adjustmentBps < 0 || adjustmentBps > 10_000) {
+        throw conflict("Adjustment must be a whole number between 0 and 10000 bps");
+      }
       if (input.status === "accepted_with_adjustment" && adjustmentBps === 0) throw conflict("Adjustment decision requires a non-zero adjustment");
       if (input.status === "accepted" && adjustmentBps !== 0) throw conflict("Accepted decision cannot carry an adjustment");
+      if (input.status === "accepted_with_adjustment" && !po.policy.allowAdjustmentBps) {
+        throw conflict("The agreed purchase-order policy does not allow an adjustment");
+      }
+      if (input.status !== "accepted_with_adjustment" && adjustmentBps !== 0) {
+        throw conflict("Only an accepted-with-adjustment decision can carry an adjustment");
+      }
       const decision: QADecision = {
         id: randomUUID(),
         receiptId: receipt.id,
@@ -688,7 +955,7 @@ export class NischitEngine {
       const buyerCredit = (settlement.amountBaseUnits * BigInt(adjustmentBps)) / 10_000n;
       settlement.buyerCreditBaseUnits = buyerCredit;
       settlement.supplierAmountBaseUnits = settlement.amountBaseUnits - buyerCredit;
-      settlement.status = input.status === "rejected" ? "held" : "authorized";
+      settlement.status = input.status === "accepted" || input.status === "accepted_with_adjustment" ? "authorized" : "held";
       if (input.status === "accepted" || input.status === "accepted_with_adjustment") {
         const shipment = this.state.shipments.find((candidate) => candidate.id === receipt.shipmentId)!;
         const lot = this.state.lots.find((candidate) => candidate.id === shipment.lotId)!;
@@ -713,22 +980,46 @@ export class NischitEngine {
       this.requireTenant(actor, po.tenantId);
       if (!hasAnyRole(actor, ["owner", "admin", "finance"])) throw forbidden("Finance role required");
       const settlement = this.getSettlement(po.id);
-      if (!(["authorized", "unknown"] as Settlement["status"][]).includes(settlement.status)) throw conflict("Settlement is not authorized");
+      if (settlement.status === "unknown" || settlement.status === "submitted") {
+        if (await this.reconcilePendingPayment(actor, po, settlement, "settle")) return settlement;
+      }
+      if (settlement.status !== "authorized") throw conflict("Settlement is not authorized");
       if (this.purchaseOrderHasActiveRecall(po.id)) throw conflict("Settlement is blocked by an active recall");
-      settlement.status = "submitted";
+      const previous = structuredClone(settlement);
+      await this.beginPaymentAction(actor, settlement, "settle");
+      const keepAuditThrough = this.state.audit.length;
       try {
-        const payment = await this.paymentRail.settle({ purchaseOrder: po, settlement, supplierTenantId: po.supplierTenantId });
-        settlement.paymentReference = payment.paymentReference;
-        settlement.status = "confirmed";
-        settlement.confirmedAt = now();
+        const payment = await this.paymentRail.settle({
+          purchaseOrder: po,
+          settlement,
+          supplierTenantId: po.supplierTenantId,
+          onSubmitted: (reference) => this.paymentSubmitted(settlement, reference),
+        });
+        await this.paymentSubmitted(settlement, payment.paymentReference);
+        this.completePaymentAction(settlement, "settle", payment.paymentReference);
         this.record(actor, "settlement.confirmed", "settlement", settlement.id);
+        await this.checkpointPaymentIntent();
         return settlement;
       } catch (error) {
-        settlement.status = "unknown";
-        this.record(actor, "settlement.unknown", "settlement", settlement.id);
-        throw error;
+        if (error instanceof PaymentNotSubmittedError) {
+          return this.markPaymentNotSubmitted(actor, settlement, "settle", previous, keepAuditThrough);
+        }
+        return this.markPaymentUnknown(actor, settlement, "settle", previous, keepAuditThrough);
       }
     });
+  }
+
+  async reconcileSettlementPayment(actor: Actor, purchaseOrderId: string) {
+    const po = this.getPO(purchaseOrderId);
+    this.requireTenant(actor, po.tenantId);
+    if (!hasAnyRole(actor, ["owner", "admin", "finance"])) throw forbidden("Finance role required");
+    const settlement = this.getSettlement(po.id);
+    if (settlement.status !== "unknown" && settlement.status !== "submitted") {
+      throw conflict("There is no unresolved payment action for this purchase order");
+    }
+    if (!settlement.pendingAction) throw conflict("Payment action details are missing; manual reconciliation is required");
+    await this.reconcilePendingPayment(actor, po, settlement, settlement.pendingAction);
+    return settlement;
   }
 
   async refund(actor: Actor, purchaseOrderId: string, reason: string, idempotencyKey?: string) {
@@ -737,15 +1028,31 @@ export class NischitEngine {
       this.requireTenant(actor, po.tenantId);
       if (!hasAnyRole(actor, ["owner", "admin", "finance"])) throw forbidden("Finance role required");
       const settlement = this.getSettlement(po.id);
+      if (settlement.status === "unknown" || settlement.status === "submitted") {
+        if (await this.reconcilePendingPayment(actor, po, settlement, "refund")) return settlement;
+      }
       if (!["funded", "awaiting_qa", "held", "authorized"].includes(settlement.status)) throw conflict("Settlement cannot be refunded");
       if (!reason.trim()) throw conflict("Refund reason is required");
-      const payment = await this.paymentRail.refund({ purchaseOrder: po, settlement });
-      settlement.paymentReference = payment.paymentReference;
-      settlement.supplierAmountBaseUnits = 0n;
-      settlement.buyerCreditBaseUnits = settlement.amountBaseUnits;
-      settlement.status = "refunded";
-      this.record(actor, "settlement.refunded", "settlement", settlement.id, { reason });
-      return settlement;
+      const previous = structuredClone(settlement);
+      await this.beginPaymentAction(actor, settlement, "refund", { reason });
+      const keepAuditThrough = this.state.audit.length;
+      try {
+        const payment = await this.paymentRail.refund({
+          purchaseOrder: po,
+          settlement,
+          onSubmitted: (reference) => this.paymentSubmitted(settlement, reference),
+        });
+        await this.paymentSubmitted(settlement, payment.paymentReference);
+        this.completePaymentAction(settlement, "refund", payment.paymentReference);
+        this.record(actor, "settlement.refunded", "settlement", settlement.id, { reason });
+        await this.checkpointPaymentIntent();
+        return settlement;
+      } catch (error) {
+        if (error instanceof PaymentNotSubmittedError) {
+          return this.markPaymentNotSubmitted(actor, settlement, "refund", previous, keepAuditThrough);
+        }
+        return this.markPaymentUnknown(actor, settlement, "refund", previous, keepAuditThrough);
+      }
     });
   }
 
@@ -1197,7 +1504,7 @@ export class NischitEngine {
       const shipment = this.state.shipments.find((candidate) => candidate.id === receipt.shipmentId);
       const po = this.state.purchaseOrders.find((candidate) => candidate.id === receipt.purchaseOrderId && candidate.tenantId === actor.tenantId);
       const product = po ? this.state.products.find((candidate) => candidate.id === po.productId) : undefined;
-      const condition = shipment ? this.state.conditionReports.find((report) => report.shipmentId === shipment.id) : undefined;
+      const condition = shipment ? [...this.state.conditionReports].reverse().find((report) => report.shipmentId === shipment.id) : undefined;
       if (!shipment || !po || !product) return [];
       return [{
         receiptId: receipt.id,
@@ -1208,9 +1515,33 @@ export class NischitEngine {
         siteId: receipt.siteId,
         receivedQuantity: receipt.receivedQuantity,
         receivedAt: receipt.receivedAt,
-        ...(condition ? { conditionStatus: condition.status, readingCount: condition.readingCount, documentCount: condition.documents.length } : {}),
+        ...(condition ? {
+          conditionStatus: condition.status,
+          readingCount: condition.readingCount,
+          documentCount: condition.documents.length,
+          evidenceDocuments: condition.documents.map(({ name, sha256, objectId, contentType }) => ({
+            name,
+            sha256,
+            ...(objectId ? { objectId } : {}),
+            ...(contentType ? { contentType } : {}),
+          })),
+        } : {}),
       } satisfies QAQueueItem];
     });
+  }
+
+  evidenceStorageLocation(actor: Actor, purchaseOrderId: string, objectId: string) {
+    const po = this.getPO(purchaseOrderId);
+    this.requireTenant(actor, po.tenantId);
+    if (!hasAnyRole(actor, ["owner", "admin", "qa"])) throw forbidden("QA evidence access is restricted");
+    const attached = this.state.conditionReports.flatMap((report) => {
+      const shipment = this.state.shipments.find((candidate) => candidate.id === report.shipmentId);
+      if (shipment?.purchaseOrderId !== po.id || shipment.supplierTenantId !== po.supplierTenantId) return [];
+      return report.documents.filter((document) => document.objectId === objectId);
+    }).at(-1);
+    if (!attached) throw notFound("Evidence is not attached to this purchase order");
+    this.record(actor, "evidence.download.authorized", "purchase_order", po.id, { objectId });
+    return { tenantId: po.supplierTenantId, objectId, sha256: attached.sha256 };
   }
 
   listFinanceQueue(actor: Actor): FinanceQueueItem[] {

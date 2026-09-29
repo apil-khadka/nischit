@@ -71,7 +71,7 @@ describe("HTTP API seam", () => {
     const supplier = { "x-tenant-id": preview.supplierTenantId, "x-user-id": preview.users.supplier };
     const create = await server.inject({
       method: "POST", url: "/api/purchase-orders", headers: buyer,
-      payload: { supplierTenantId: preview.supplierTenantId, productId: preview.productId, quantity: 4, amountBaseUnits: "4000", token: "TEST_USD" },
+      payload: { supplierTenantId: preview.supplierTenantId, productId: preview.productId, quantity: 4, amountBaseUnits: "4000", token: "TEST_USD", policy: { maxTelemetryGapSeconds: 300 } },
     });
     const po = create.json();
     expect((await server.inject({ method: "GET", url: "/api/supplier/inbox", headers: supplier })).json()).toEqual([]);
@@ -154,7 +154,7 @@ describe("HTTP API seam", () => {
     service.objectStore = {
       putEvidence: async () => ({ key: "unused", sha256: "c".repeat(64) }),
       getEvidence: async ({ tenantId, objectId }) => ({ tenantId, objectId, contentType: "application/pdf", body: new Uint8Array(), sha256: "c".repeat(64) }),
-      presignEvidence: async () => "https://private.example/evidence",
+      presignEvidence: async ({ tenantId, objectId }) => `https://private.example/${tenantId}/${objectId}`,
     };
     const preview = (await server.inject({ method: "GET", url: "/api/preview" })).json();
     const buyer = { "x-tenant-id": preview.buyerTenantId, "x-user-id": preview.users.buyerOwner };
@@ -167,6 +167,7 @@ describe("HTTP API seam", () => {
 
     const poResponse = await post("/api/purchase-orders", buyer, {
       supplierTenantId: preview.supplierTenantId, productId: preview.productId, quantity: 20, amountBaseUnits: "100000", token: "TEST_USD",
+      policy: { maxTelemetryGapSeconds: 300 },
     }, "http-po");
     expect([200, 201]).toContain(poResponse.statusCode);
     const po = poResponse.json();
@@ -181,23 +182,42 @@ describe("HTTP API seam", () => {
     }, "http-shipment");
     expect([200, 201]).toContain(shipmentResponse.statusCode);
     const shipment = shipmentResponse.json().shipment;
+    const dispatchTime = Date.parse(shipment.dispatchedAt);
     const mismatchedEvidence = await post("/api/shipments/" + shipment.id + "/evidence", supplier, {
       readings: [{ sequence: 1, timestamp: new Date().toISOString(), temperatureCelsius: 4 }],
       documents: [{ name: "coa", sha256: "d".repeat(64), source: "upload", objectId: "coa-1", contentType: "application/pdf" }],
     }, "http-bad-evidence");
     expect(mismatchedEvidence.statusCode).toBe(409);
     const evidence = await post("/api/shipments/" + shipment.id + "/evidence", supplier, {
-      readings: [{ sequence: 1, timestamp: new Date().toISOString(), temperatureCelsius: 4 }],
+      readings: [
+        { sequence: 1, timestamp: new Date(dispatchTime).toISOString(), temperatureCelsius: 4 },
+        { sequence: 2, timestamp: new Date().toISOString(), temperatureCelsius: 4 },
+      ],
       documents: [
         { name: "invoice", sha256: "c".repeat(64), source: "upload", objectId: "invoice-1", contentType: "application/pdf" },
         { name: "coa", sha256: "c".repeat(64), source: "upload", objectId: "coa-1", contentType: "application/pdf" },
       ],
     }, "http-evidence");
-    expect(evidence.json().status).toBe("pass");
+    expect(evidence.json().status).toBe("insufficient_evidence");
     expect(evidence.json().documents).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "coa", objectId: "coa-1" }),
     ]));
     const receipt = (await post("/api/shipments/" + shipment.id + "/receive", receiver, { receivedQuantity: 20, siteId: "central" }, "http-receive")).json();
+    const qaQueue = await server.inject({ method: "GET", url: "/api/qa/queue", headers: qa });
+    expect(qaQueue.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ receiptId: receipt.id, conditionStatus: "pass", evidenceDocuments: expect.arrayContaining([expect.objectContaining({ objectId: "invoice-1" })]) }),
+    ]));
+    const buyerEvidence = await server.inject({
+      method: "GET",
+      url: `/api/purchase-orders/${po.id}/evidence/invoice-1`,
+      headers: qa,
+    });
+    expect(buyerEvidence.statusCode).toBe(200);
+    expect(buyerEvidence.json()).toEqual({
+      tenantId: preview.supplierTenantId,
+      objectId: "invoice-1",
+      url: `https://private.example/${preview.supplierTenantId}/invoice-1`,
+    });
     expect((await post("/api/receipts/" + receipt.id + "/qa", qa, { status: "accepted", reason: "All checks passed", siteId: "central" }, "http-qa")).json().status).toBe("accepted");
     const holdings = (await server.inject({ method: "GET", url: "/api/holdings", headers: qa })).json();
     const lot = holdings[0];

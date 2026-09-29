@@ -3,6 +3,7 @@ import {
   MockPaymentRail,
   MockPublicAttestationRail,
   NischitEngine,
+  PaymentOutcomeUnknownError,
   type Actor,
   type Role,
   type PaymentRail,
@@ -37,6 +38,7 @@ export class EngineService implements OnModuleInit, OnModuleDestroy {
   private store?: PostgresStateStore;
   private initialized = false;
   private commandQueue: Promise<unknown> = Promise.resolve();
+  private persistedAuditCount = 0;
 
   constructor(@Optional() identityProvider?: IdentityProvider) {
     const configuredIdentity = SignedSessionIdentityProvider.fromEnvironment() ?? BearerJwtIdentityProvider.fromEnvironment();
@@ -126,6 +128,10 @@ export class EngineService implements OnModuleInit, OnModuleDestroy {
     const escrowAddress = process.env.TEMPO_ESCROW_ADDRESS;
     const payerPrivateKey = process.env.TEMPO_PAYER_PRIVATE_KEY;
     if (!rpcUrl || !escrowAddress || !payerPrivateKey) throw new Error("TEMPO_RPC_URL, TEMPO_ESCROW_ADDRESS, and TEMPO_PAYER_PRIVATE_KEY are required for PAYMENT_MODE=tempo");
+    const deploymentBlock = process.env.TEMPO_ESCROW_DEPLOYMENT_BLOCK;
+    if (!deploymentBlock || !/^\d+$/.test(deploymentBlock)) {
+      throw new Error("TEMPO_ESCROW_DEPLOYMENT_BLOCK must identify the escrow deployment block for payment recovery");
+    }
     const parseAddresses = (name: string) => {
       const raw = process.env[name];
       if (!raw) throw new Error(`${name} is required for PAYMENT_MODE=tempo`);
@@ -141,6 +147,7 @@ export class EngineService implements OnModuleInit, OnModuleDestroy {
       tokenAddresses: parseAddresses("TEMPO_TOKEN_ADDRESSES_JSON"),
       supplierAddresses: parseAddresses("TEMPO_SUPPLIER_ADDRESSES_JSON"),
       confirmations: Number(process.env.TEMPO_CONFIRMATIONS ?? "1"),
+      deploymentBlock: BigInt(deploymentBlock),
     });
   }
 
@@ -176,6 +183,8 @@ export class EngineService implements OnModuleInit, OnModuleDestroy {
     const snapshot = await this.store.load();
     if (snapshot) this.engine.replaceSnapshot(snapshot);
     else await this.store.save(this.engine.snapshot());
+    this.persistedAuditCount = this.engine.snapshot().audit.length;
+    this.engine.setPersistenceCheckpoint(() => this.persistCurrentSnapshot());
     this.initialized = true;
   }
 
@@ -185,14 +194,23 @@ export class EngineService implements OnModuleInit, OnModuleDestroy {
 
   run<T>(action: () => T | Promise<T>): Promise<T> {
     const next = this.commandQueue.then(async () => {
-      const previousAuditCount = this.engine.snapshot().audit.length;
-      const result = await action();
-      const snapshot = this.engine.snapshot();
-      await this.store?.save(snapshot, auditEventsToOutbox(snapshot.audit, previousAuditCount));
-      return result;
+      try {
+        const result = await action();
+        await this.persistCurrentSnapshot();
+        return result;
+      } catch (error) {
+        if (error instanceof PaymentOutcomeUnknownError) await this.persistCurrentSnapshot();
+        throw error;
+      }
     });
     this.commandQueue = next.catch(() => undefined);
     return next;
+  }
+
+  private async persistCurrentSnapshot() {
+    const snapshot = this.engine.snapshot();
+    await this.store?.save(snapshot, auditEventsToOutbox(snapshot.audit, this.persistedAuditCount));
+    this.persistedAuditCount = snapshot.audit.length;
   }
 
   actor(tenantId: string, userId: string): Actor {

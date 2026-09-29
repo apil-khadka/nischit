@@ -12,16 +12,20 @@ This guide describes expected behavior in ordinary language. Edit these statemen
 ## Evidence and quality decisions
 
 - If required shipment evidence is missing, malformed, or inconsistent, the system should not silently mark the shipment acceptable.
+- Every purchase order should record the product-specific maximum gap between telemetry readings. Evidence should remain insufficient until receiving closes the shipment window and readings cover dispatch through receipt within that gap. A single reading, a missing policy gap, or an unexplained gap should never produce PASS.
+- A temperature that is missing, non-finite, or outside the agreed range should not produce PASS. A provided device signature should count as verified only when the system can validate it against a trusted device key; an unverified signature claim should leave evidence insufficient.
 - When recorded conditions fall outside the agreed policy, settlement should remain held until an authorized QA reviewer makes and records a decision with a reason.
+- A QA decision of Hold or Reject should keep settlement held. It should never authorize a payout.
+- An accepted-with-adjustment decision should be rejected unless the agreed purchase-order policy allows adjustments. Adjustments should be whole basis points within the permitted range.
 - A supplier should not be able to approve its own shipment’s QA result. A sensor reading, signature, hash, or chain receipt should support review but should not automatically prove physical quality.
-- Private evidence files should remain private. A public verification record may expose reviewed commitments and statuses, but should not reveal the documents themselves.
+- Private evidence files should remain private. An authorized buyer QA reviewer should be able to open only files attached to that purchase order, even when those files are stored in the supplier’s tenant. A public verification record should not reveal the documents themselves.
 
 ## Inventory, recalls, and settlement
 
 - Receiving stock, moving it between sites, consuming it, or disposing of it should update the recorded quantity without creating or losing stock unintentionally.
 - Expired or recalled stock should not be available for use or new settlement authorization. Releasing quarantined stock should require the appropriate authorization.
 - Repeating the same funded, received, QA, or settlement command should not create a duplicate result.
-- If a payment request times out, the system should show an unknown state until it is reconciled. It should not assume the payment failed and send another payment automatically.
+- Before sending a payment, the system should save the payment intent. If a payment request times out, the system should retain its action and transaction reference when available, show an unknown state, and reconcile the same action before allowing another submission.
 - Publishing an attestation should not be shown as proof that a payment settled. The payment and attestation records should be checked independently.
 
 ## Evidence storage and background work

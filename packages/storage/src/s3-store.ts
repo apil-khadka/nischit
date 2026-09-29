@@ -21,6 +21,13 @@ export interface ObjectStore {
   presignEvidence(input: { tenantId: string; objectId: string; expiresInSeconds?: number }): Promise<string>;
 }
 
+export class EvidenceObjectAlreadyExistsError extends Error {
+  constructor() {
+    super("Evidence object identifiers are immutable and cannot be overwritten");
+    this.name = "EvidenceObjectAlreadyExistsError";
+  }
+}
+
 export const evidenceKey = (tenantId: string, objectId: string) => {
   const isSafeSegment = (value: string) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
   if (!isSafeSegment(tenantId) || !isSafeSegment(objectId)) {
@@ -49,13 +56,22 @@ export class S3ObjectStore implements ObjectStore {
     const key = evidenceKey(input.tenantId, input.objectId);
     const actualSha256 = digest(input.body);
     if (actualSha256 !== input.sha256) throw new Error("Evidence checksum does not match content");
-    await this.client.send(new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      Body: input.body,
-      ContentType: input.contentType,
-      Metadata: { "tenant-id": input.tenantId, sha256: actualSha256 },
-    }));
+    try {
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: input.body,
+        ContentType: input.contentType,
+        IfNoneMatch: "*",
+        Metadata: { "tenant-id": input.tenantId, sha256: actualSha256 },
+      }));
+    } catch (error) {
+      const response = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (response.name === "PreconditionFailed" || response.name === "ConditionalRequestConflict" || response.$metadata?.httpStatusCode === 412) {
+        throw new EvidenceObjectAlreadyExistsError();
+      }
+      throw error;
+    }
     return { key, sha256: actualSha256 };
   }
 

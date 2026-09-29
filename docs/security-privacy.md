@@ -31,11 +31,11 @@ Controls: explicit tenant context, API policy, repository scoping, Postgres RLS,
 
 ### Forged or replayed condition evidence
 
-Controls: device identity, signed payloads, nonce/sequence, shipment binding, timestamp windows, idempotency keys, calibration/provenance metadata, and a visible distinction between manual, uploaded, and signed evidence.
+Controls: sequence and predecessor checks, shipment binding, timestamp-window coverage, idempotency keys, calibration/provenance metadata, and a visible distinction between manual, uploaded, and claimed device evidence. Device public-key verification is not configured yet, so any submitted signature claim is treated as unverified and cannot produce PASS.
 
 The API retains an RS256 bearer-token adapter for service integrations, while the browser production path uses the Rauthy OIDC callback and a signed, short-lived session cookie. The default local mode uses synthetic preview headers. Production requires `IDENTITY_MODE=rauthy-session` and never accepts preview credentials.
 
-Cryptographic signatures protect the data path. They do not prove that a sensor was calibrated, correctly placed, or physically honest. QA remains a human-controlled decision.
+Once device-key verification is configured, cryptographic signatures can protect the data path. They do not prove that a sensor was calibrated, correctly placed, or physically honest. QA remains a human-controlled decision.
 
 ### Modified terms or documents
 

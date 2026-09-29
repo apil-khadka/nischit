@@ -238,7 +238,11 @@ export class PostgresStateStore {
       ...(row.maximum_temperature_celsius !== null ? { maximumTemperatureCelsius: optionalNumber(row.maximum_temperature_celsius) } : {}),
       ...(row.average_temperature_celsius !== null ? { averageTemperatureCelsius: optionalNumber(row.average_temperature_celsius) } : {}),
       excursionCount: row.excursion_count, longestExcursionSeconds: Number(row.longest_excursion_seconds),
-      missingSequenceCount: row.missing_sequence_count, signatureCoverage: Number(row.signature_coverage),
+      missingSequenceCount: row.missing_sequence_count,
+      ...(row.maximum_observed_gap_seconds !== null ? { maximumObservedGapSeconds: Number(row.maximum_observed_gap_seconds) } : {}),
+      coverageComplete: row.coverage_complete ?? false,
+      evidenceIntegrityValid: row.evidence_integrity_valid ?? false,
+      signatureCoverage: Number(row.signature_coverage),
       hashChainValid: row.hash_chain_valid, documents: decodeJson(row.documents), readingsHash: row.readings_hash,
       telemetryMerkleRoot: row.telemetry_merkle_root, createdAt: iso(row.created_at),
     }));
@@ -268,6 +272,8 @@ export class PostgresStateStore {
       adjustmentBps: row.adjustment_bps, supplierAmountBaseUnits: bigintOrUndefined(row.supplier_amount_base_units),
       buyerCreditBaseUnits: bigintOrUndefined(row.buyer_credit_base_units), status: row.status,
       ...(row.payment_reference ? { paymentReference: row.payment_reference } : {}),
+      ...(row.pending_action ? { pendingAction: row.pending_action } : {}),
+      ...(row.payment_action_previous_status ? { paymentActionPreviousStatus: row.payment_action_previous_status } : {}),
       ...(row.confirmed_at ? { confirmedAt: iso(row.confirmed_at) } : {}),
     }));
     const recalls: Recall[] = recallRows.map((row) => ({
@@ -355,8 +361,8 @@ export class PostgresStateStore {
         if (!shipment) throw new Error(`Condition report ${report.id} references a missing shipment`);
         await setTenant(shipment.tenantId);
         await client.query(
-          "INSERT INTO condition_reports (id, tenant_id, shipment_id, status, reading_count, first_reading_at, last_reading_at, minimum_temperature_celsius, maximum_temperature_celsius, average_temperature_celsius, excursion_count, longest_excursion_seconds, missing_sequence_count, signature_coverage, hash_chain_valid, documents, readings_hash, telemetry_merkle_root, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, documents = EXCLUDED.documents, hash_chain_valid = EXCLUDED.hash_chain_valid",
-          [report.id, shipment.tenantId, report.shipmentId, report.status, report.readingCount, report.firstReadingAt ?? null, report.lastReadingAt ?? null, report.minimumTemperatureCelsius ?? null, report.maximumTemperatureCelsius ?? null, report.averageTemperatureCelsius ?? null, report.excursionCount, report.longestExcursionSeconds, report.missingSequenceCount, report.signatureCoverage, report.hashChainValid, encodeJson(report.documents), report.readingsHash, report.telemetryMerkleRoot, report.createdAt],
+          "INSERT INTO condition_reports (id, tenant_id, shipment_id, status, reading_count, first_reading_at, last_reading_at, minimum_temperature_celsius, maximum_temperature_celsius, average_temperature_celsius, excursion_count, longest_excursion_seconds, missing_sequence_count, maximum_observed_gap_seconds, coverage_complete, evidence_integrity_valid, signature_coverage, hash_chain_valid, documents, readings_hash, telemetry_merkle_root, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, maximum_observed_gap_seconds = EXCLUDED.maximum_observed_gap_seconds, coverage_complete = EXCLUDED.coverage_complete, evidence_integrity_valid = EXCLUDED.evidence_integrity_valid, documents = EXCLUDED.documents, hash_chain_valid = EXCLUDED.hash_chain_valid",
+          [report.id, shipment.tenantId, report.shipmentId, report.status, report.readingCount, report.firstReadingAt ?? null, report.lastReadingAt ?? null, report.minimumTemperatureCelsius ?? null, report.maximumTemperatureCelsius ?? null, report.averageTemperatureCelsius ?? null, report.excursionCount, report.longestExcursionSeconds, report.missingSequenceCount, report.maximumObservedGapSeconds ?? null, report.coverageComplete, report.evidenceIntegrityValid, report.signatureCoverage, report.hashChainValid, encodeJson(report.documents), report.readingsHash, report.telemetryMerkleRoot, report.createdAt],
         );
       }
       for (const receipt of snapshot.receipts) {
@@ -394,8 +400,8 @@ export class PostgresStateStore {
         if (!po) throw new Error(`Settlement ${settlement.id} references a missing purchase order`);
         await setTenant(po.tenantId);
         await client.query(
-          "INSERT INTO settlements (id, tenant_id, purchase_order_id, amount_base_units, adjustment_bps, supplier_amount_base_units, buyer_credit_base_units, status, payment_reference, confirmed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET adjustment_bps = EXCLUDED.adjustment_bps, supplier_amount_base_units = EXCLUDED.supplier_amount_base_units, buyer_credit_base_units = EXCLUDED.buyer_credit_base_units, status = EXCLUDED.status, payment_reference = EXCLUDED.payment_reference, confirmed_at = EXCLUDED.confirmed_at",
-          [settlement.id, po.tenantId, settlement.purchaseOrderId, settlement.amountBaseUnits.toString(), settlement.adjustmentBps, settlement.supplierAmountBaseUnits?.toString() ?? null, settlement.buyerCreditBaseUnits?.toString() ?? null, settlement.status, settlement.paymentReference ?? null, settlement.confirmedAt ?? null],
+          "INSERT INTO settlements (id, tenant_id, purchase_order_id, amount_base_units, adjustment_bps, supplier_amount_base_units, buyer_credit_base_units, status, payment_reference, pending_action, payment_action_previous_status, confirmed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO UPDATE SET adjustment_bps = EXCLUDED.adjustment_bps, supplier_amount_base_units = EXCLUDED.supplier_amount_base_units, buyer_credit_base_units = EXCLUDED.buyer_credit_base_units, status = EXCLUDED.status, payment_reference = EXCLUDED.payment_reference, pending_action = EXCLUDED.pending_action, payment_action_previous_status = EXCLUDED.payment_action_previous_status, confirmed_at = EXCLUDED.confirmed_at",
+          [settlement.id, po.tenantId, settlement.purchaseOrderId, settlement.amountBaseUnits.toString(), settlement.adjustmentBps, settlement.supplierAmountBaseUnits?.toString() ?? null, settlement.buyerCreditBaseUnits?.toString() ?? null, settlement.status, settlement.paymentReference ?? null, settlement.pendingAction ?? null, settlement.paymentActionPreviousStatus ?? null, settlement.confirmedAt ?? null],
         );
       }
       for (const recall of snapshot.recalls) {

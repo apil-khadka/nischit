@@ -299,6 +299,8 @@ export default function Workspace() {
   const [poQuantity, setPoQuantity] = useState<number | null>(null);
   const [poAmount, setPoAmount] = useState("");
   const [poToken, setPoToken] = useState("TEST_USD");
+  const [poMaxTelemetryGapSeconds, setPoMaxTelemetryGapSeconds] = useState<number | null>(null);
+  const [poAllowAdjustmentBps, setPoAllowAdjustmentBps] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string>();
   const pageRequestRef = useRef<AbortController | null>(null);
   const commandKeysRef = useRef(new Map<string, string>());
@@ -440,22 +442,26 @@ export default function Workspace() {
   }
 
   async function createPurchaseOrder() {
-    if (!session || pendingCommand || !poProductId || !poSupplierId || !poQuantity || !poAmount || !poToken) return;
+    if (!session || pendingCommand || !poProductId || !poSupplierId || !poQuantity || !poAmount || !poToken || !poMaxTelemetryGapSeconds) return;
     setPendingCommand("purchase-order.create");
     try {
       await request("/purchase-orders", session, {
         productId: poProductId, supplierTenantId: poSupplierId, quantity: poQuantity,
         amountBaseUnits: poAmount, token: poToken,
+        policy: {
+          maxTelemetryGapSeconds: poMaxTelemetryGapSeconds,
+          allowAdjustmentBps: poAllowAdjustmentBps,
+        },
       }, idempotencyKeyFor("purchase-order.create"));
       setCreatePOOpen(false);
-      setPoProductId(""); setPoSupplierId(""); setPoQuantity(null); setPoAmount("");
+      setPoProductId(""); setPoSupplierId(""); setPoQuantity(null); setPoAmount(""); setPoMaxTelemetryGapSeconds(null); setPoAllowAdjustmentBps(false);
       setNotice({ status: "success", title: "Purchase order created", description: "Open the new record to grant the supplier access to its terms." });
       commandKeysRef.current.delete("purchase-order.create");
       await loadPage("purchase-orders");
     } catch (error) {
       if (session.kind === "preview") {
         setCreatePOOpen(false);
-        setPoProductId(""); setPoSupplierId(""); setPoQuantity(null); setPoAmount("");
+        setPoProductId(""); setPoSupplierId(""); setPoQuantity(null); setPoAmount(""); setPoMaxTelemetryGapSeconds(null); setPoAllowAdjustmentBps(false);
         setNotice({ status: "success", title: "Purchase order created (Preview)", description: "Simulated record created in preview. No payment has been sent." });
         return;
       }
@@ -723,9 +729,19 @@ export default function Workspace() {
                   <NumberInput label="Quantity" value={poQuantity} onChange={setPoQuantity} min={1} isIntegerOnly />
                   <TextInput label="Amount" value={poAmount} onChange={setPoAmount} placeholder="100000" />
                   <TextInput label="Token" value={poToken} onChange={setPoToken} />
+                  <NumberInput label="Maximum telemetry gap (seconds)" value={poMaxTelemetryGapSeconds} onChange={setPoMaxTelemetryGapSeconds} min={1} isIntegerOnly />
+                  <Selector
+                    label="Allow settlement adjustment"
+                    options={[
+                      { value: "no", label: "No" },
+                      { value: "yes", label: "Yes" },
+                    ]}
+                    value={poAllowAdjustmentBps ? "yes" : "no"}
+                    onChange={(value: string) => setPoAllowAdjustmentBps(value === "yes")}
+                  />
                   <div className="form-actions">
                     <Button label="Cancel" variant="ghost" isDisabled={Boolean(pendingCommand)} onClick={() => setCreatePOOpen(false)} />
-                    <Button label="Create purchase order" variant="primary" isDisabled={Boolean(pendingCommand) || !poProductId || !poSupplierId || !poQuantity || !poAmount || !poToken} isLoading={pendingCommand === "purchase-order.create"} onClick={() => void createPurchaseOrder()} />
+                    <Button label="Create purchase order" variant="primary" isDisabled={Boolean(pendingCommand) || !poProductId || !poSupplierId || !poQuantity || !poAmount || !poToken || !poMaxTelemetryGapSeconds} isLoading={pendingCommand === "purchase-order.create"} onClick={() => void createPurchaseOrder()} />
                   </div>
                 </div>
               </Card>
@@ -1123,11 +1139,38 @@ function InspectorWindow({
   onClose: () => void;
 }) {
   const [subTab, setSubTab] = useState<"action" | "lifecycle" | "ledger">("action");
+  const [evidenceLinks, setEvidenceLinks] = useState<Record<string, string>>({});
+  const [preparingEvidence, setPreparingEvidence] = useState<string>();
+  const [evidenceError, setEvidenceError] = useState<string>();
   const raw = selected.raw;
   const poId = asString(raw.purchaseOrderId);
   const shipmentId = asString(raw.shipmentId);
   const receiptId = asString(raw.receiptId);
   const siteOptions = sites.map((site) => ({ value: asString(site.id), label: asString(site.name, asString(site.id)) }));
+  const evidenceDocuments = Array.isArray(raw.evidenceDocuments)
+    ? raw.evidenceDocuments.map(asRecord)
+    : [];
+
+  useEffect(() => {
+    setEvidenceLinks({});
+    setEvidenceError(undefined);
+  }, [receiptId]);
+
+  async function prepareEvidence(objectId: string) {
+    setPreparingEvidence(objectId);
+    setEvidenceError(undefined);
+    try {
+      const result = await request<{ url: string }>(
+        `/purchase-orders/${encodeURIComponent(poId)}/evidence/${encodeURIComponent(objectId)}`,
+        session,
+      );
+      setEvidenceLinks((current) => ({ ...current, [objectId]: result.url }));
+    } catch (error) {
+      setEvidenceError(error instanceof Error ? error.message : "The secure evidence link could not be prepared");
+    } finally {
+      setPreparingEvidence(undefined);
+    }
+  }
 
   return (
     <div className="inspector-window">
@@ -1224,6 +1267,36 @@ function InspectorWindow({
               ) : null}
               {page === "qa" && session.role === "qa" ? (
                 <div className="action-form">
+                  {evidenceDocuments.length ? (
+                    <div className="action-form">
+                      <strong>Supplier evidence</strong>
+                      {evidenceDocuments.map((document, index) => {
+                        const name = asString(document.name, `Evidence ${index + 1}`);
+                        const objectId = asString(document.objectId, "");
+                        const url = objectId ? evidenceLinks[objectId] : undefined;
+                        return (
+                          <div className="inspector-meta-row" key={`${objectId || name}-${index}`}>
+                            <span className="inspector-meta-val">{name}</span>
+                            {url ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer">Open file</a>
+                            ) : objectId && session.kind !== "preview" ? (
+                              <Button
+                                label="Prepare secure link"
+                                variant="secondary"
+                                size="sm"
+                                isDisabled={Boolean(preparingEvidence)}
+                                isLoading={preparingEvidence === objectId}
+                                onClick={() => void prepareEvidence(objectId)}
+                              />
+                            ) : (
+                              <Text type="supporting">No private file is attached.</Text>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {evidenceError ? <Text type="supporting">{evidenceError}</Text> : null}
+                    </div>
+                  ) : null}
                   <Selector
                     label="Decision"
                     options={[
@@ -1262,6 +1335,15 @@ function InspectorWindow({
                       isDisabled={isActionPending}
                       isLoading={isActionPending}
                       onClick={() => void onCommand(`/purchase-orders/${poId}/fund`, {})}
+                    />
+                  ) : null}
+                  {["unknown", "submitted"].includes(asString(raw.settlementStatus)) ? (
+                    <Button
+                      label="Reconcile payment"
+                      variant="primary"
+                      isDisabled={isActionPending}
+                      isLoading={isActionPending}
+                      onClick={() => void onCommand(`/purchase-orders/${poId}/reconcile-payment`, {})}
                     />
                   ) : null}
                   {["awaiting_qa", "authorized"].includes(asString(raw.settlementStatus)) ? (

@@ -65,4 +65,4 @@ CMD ["node", "apps/worker/dist/main.js"]
 
 FROM postgres:17-alpine AS migrate
 COPY db/migrations /migrations
-CMD ["sh", "-c", "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f /migrations/0001_initial.sql"]
+CMD ["sh", "-c", "for migration in /migrations/*.sql; do psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$migration\"; done"]

@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 24 September 2026.
+Updated 28 September 2026.
 
 This repository contains an evolving implementation of the lab-supply workflow, including API, persistence, identity, storage, and chain-adapter code. Local verification uses synthetic records and deterministic adapters. A passing local check does not prove production deployment, regulatory compliance, customer validation, or live payment execution. Current production readiness gates are listed below; product boundaries and interface behavior are documented in [UI workflow research](ui-workflow-research.md) and [workflow invariants](workflow-invariants.md).
 
@@ -11,24 +11,24 @@ This repository contains an evolving implementation of the lab-supply workflow, 
 - Append-only inventory transfers between sites, expiry- and recall-blocked usage/settlement, and authorized quarantine release with conservation tests.
 - Goods receipts retain their receiving site plus accepted/rejected quantity projections; QA cannot decide against a different site.
 - Authorized recall users can list recalls and inspect tenant-scoped recorded remaining, usable, quarantined, consumed, and wasted quantities by site.
-- Condition reports retain first/last timestamps, average/min/max temperature, excursion count/duration, a telemetry Merkle root, signature coverage, and hash-chain validity; malformed claimed chains cannot pass.
-- QA adjustments retain integer supplier-credit and buyer-credit base-unit amounts whose sum equals the escrowed amount.
-- Settlement rail errors leave the aggregate in `unknown` and allow an explicit idempotent retry; a timeout never becomes a confirmed payment.
+- Condition reports retain first/last timestamps, average/min/max temperature, excursion count/duration, observed telemetry gaps, shipment-window coverage, a telemetry Merkle root, and hash-chain validity. Non-finite measurements and unverified device-signature claims cannot pass.
+- QA adjustments retain integer supplier-credit and buyer-credit base-unit amounts whose sum equals the escrowed amount; adjustment decisions are rejected unless the agreed PO policy allows them. Hold and Reject keep settlement held.
+- Payment intents are persisted with the audit/outbox transaction before rail submission. Transaction references are saved as soon as adapters return them, and unknown fund, settle, or refund actions are reconciled before any explicit retry.
 - Role checks, active-tenant checks, scoped supplier grants, opaque settlement references, idempotency keys, inventory conservation checks, and separate payment/publication adapters.
 - Domain behavior tests and API seam tests.
 - Astryx Butter global CSS, Nischit design tokens, responsive dashboard shell, keyboard focus, status text, and reduced-motion handling.
 - Docker multi-target build, Compose services for PostgreSQL, Valkey, optional local RustFS, API, and web.
-- Initial PostgreSQL migration foundation for tenants, memberships, audit events, outbox events, and RLS policies.
+- PostgreSQL migrations provide normalized tenant, procurement, evidence, settlement, audit, outbox, and RLS tables, including durable payment-action and evidence-coverage fields.
 - Worker process that polls the durable outbox table, acknowledges the implemented audit-event handler, and leaves unknown topics retryable.
 - PostgreSQL-backed normalized aggregate persistence with bigint-safe amounts, a legacy singleton read fallback, and a single-process command queue for the Compose path. The normalized round-trip covers procurement, condition metrics, receipts, QA, inventory, settings, settlement, audit, and outbox rows.
 - Tenant settings for IANA timezone, active sites, and usage reason codes, plus append-only opening and correction inventory events and an authorized verification-report projection.
 - Role-specific read models for supplier inbox, buyer product/supplier selection, receiving queue, QA queue, and finance settlement queue; each read model is derived from the tenant-scoped aggregate and filtered by active membership/grants.
 - S3-compatible evidence-store adapter with tenant-scoped keys and SHA-256 validation; it is configurable for Cloudflare R2 or RustFS and is covered by adapter tests.
-- API evidence upload and presign endpoints that resolve the active tenant from request context, return only opaque object references/checksums, and carry private object identifiers into shipment condition reports.
+- API evidence uploads remain tenant-scoped; buyer QA can prepare a short-lived download only for a private object attached to the reviewed PO, with access recorded in the audit trail.
 - Application-owned identity seam with a fail-closed Rauthy OIDC callback, S256 PKCE, signed HttpOnly session, refresh path, and tenant membership resolution; RS256 bearer validation remains available for service integrations and preview headers remain local-only.
 - PostgreSQL integration test and CI service covering the migration, normalized procurement/condition/receipt/QA/inventory/settlement round-trip, tenant settings, tenant/membership/audit upserts, legacy compatibility path, and outbox foreign-key path.
 - Configurable Tempo escrow and Solana memo adapters with explicit environment selection; deterministic mocks remain the default for local development and automated verification. A minimal review-required Tempo escrow contract and Foundry tests are included.
-- Public purchase-order verification now queries the configured Tempo and Solana RPCs independently. Tempo checks the configured chain, escrow target, receipt status, matching order event, amounts, and confirmation count; Solana checks transaction status and the exact Nischit memo commitment. RPC or missing-transaction results remain explicit (`pending`, `unavailable`, or `unverifiable`) and do not imply proof. Tempo reports only the transaction reference currently stored on the settlement.
+- Public purchase-order verification now queries the configured Tempo and Solana RPCs independently. Tempo checks the configured chain, escrow target, receipt status, matching order event, amounts, and confirmation count; a missing saved transaction hash can be recovered from escrow logs using the stable order reference and configured deployment block. Solana checks transaction status and the exact Nischit memo commitment. RPC or missing-transaction results remain explicit (`pending`, `unavailable`, or `unverifiable`) and do not imply proof.
 - Live multi-user API audit covered buyer owner, finance, receiver, QA, supplier, forged-user, and wrong-tenant identities. Role and tenant boundaries passed; the supplier inbox and stronger evidence object checks are now covered by domain/API tests.
 - PostgreSQL outbox worker integration test covering transactional locking, known-event acknowledgement, and retryable unknown topics.
 - Docker API/worker/web images have been built and a local Compose smoke test has run against PostgreSQL, Valkey, and RustFS; the containerized API bootstrapped a fresh database and the worker started successfully.

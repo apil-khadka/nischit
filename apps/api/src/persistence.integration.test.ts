@@ -10,7 +10,9 @@ describe.skipIf(!databaseUrl)("PostgreSQL persistence integration", () => {
   it("applies the migration and persists tenants, audit, snapshot, and outbox atomically", async () => {
     const setupPool = new Pool({ connectionString: databaseUrl });
     const migration = await readFile(new URL("../../../db/migrations/0001_initial.sql", import.meta.url), "utf8");
+    const recoveryMigration = await readFile(new URL("../../../db/migrations/0002_payment_recovery_and_evidence_coverage.sql", import.meta.url), "utf8");
     await setupPool.query(migration);
+    await setupPool.query(recoveryMigration);
     await setupPool.query("TRUNCATE verification_signatures, nischit_idempotency, recalls, settlements, qa_decisions, inventory_holdings, inventory_events, goods_receipts, condition_reports, shipments, lots, purchase_orders, products, collaboration_grants, outbox_events, audit_events, memberships, tenants, nischit_engine_state, nischit_persistence_meta CASCADE");
 
     const audit = {
@@ -50,7 +52,9 @@ describe.skipIf(!databaseUrl)("PostgreSQL persistence integration", () => {
   it("round-trips the procurement, condition, receipt, QA, inventory, and settlement aggregates without the singleton snapshot", async () => {
     const setupPool = new Pool({ connectionString: databaseUrl });
     const migration = await readFile(new URL("../../../db/migrations/0001_initial.sql", import.meta.url), "utf8");
+    const recoveryMigration = await readFile(new URL("../../../db/migrations/0002_payment_recovery_and_evidence_coverage.sql", import.meta.url), "utf8");
     await setupPool.query(migration);
+    await setupPool.query(recoveryMigration);
     await setupPool.query("TRUNCATE verification_signatures, nischit_idempotency, recalls, settlements, qa_decisions, inventory_holdings, inventory_events, goods_receipts, condition_reports, shipments, lots, purchase_orders, products, collaboration_grants, outbox_events, audit_events, memberships, tenants, nischit_engine_state, nischit_persistence_meta CASCADE");
     const payment = new MockPaymentRail();
     const engine = new NischitEngine(payment, new MockPublicAttestationRail());
@@ -71,6 +75,7 @@ describe.skipIf(!databaseUrl)("PostgreSQL persistence integration", () => {
     });
     const po = engine.createPurchaseOrder(owner, {
       supplierTenantId: supplier.id, productId: product.id, quantity: 20, amountBaseUnits: "100000", token: "TEST_USD",
+      policy: { maxTelemetryGapSeconds: 300, allowAdjustmentBps: true },
     });
     engine.createCollaborationGrant(owner, { receivingTenantId: supplier.id, purchaseOrderId: po.id, actions: ["view", "acknowledge", "submit_evidence", "respond"] });
     await engine.acknowledgePurchaseOrder(supplierManager, po.id);

@@ -24,11 +24,11 @@ The web API-client suite covers non-JSON proxy failures, bounded actionable erro
 
 ### Domain seam
 
-`packages/domain/src/engine.test.ts` covers supplier acknowledgement before funding, grant-scoped supplier inbox visibility, role-specific receiving/QA/finance queues, opaque settlement references, missing evidence, condition exceptions and aggregate metrics, malformed claimed telemetry chains, human QA reasons, receipt-site authority, accepted/rejected quantity projections, integer adjustment conservation, tenant and collaboration boundaries, lot visibility after buyer receipt, inventory conservation, site transfers, expiry/recall-blocked usage, authorized quarantine release, insufficient stock, unknown settlement retry, idempotent funding/settlement retries, and independent Solana publication state.
+`packages/domain/src/engine.test.ts` covers supplier acknowledgement before funding, grant-scoped supplier inbox visibility, role-specific receiving/QA/finance queues, opaque settlement references, missing evidence, shipment-window telemetry coverage, non-finite temperatures, malformed/unverified claimed telemetry chains, human QA reasons, Hold/Reject settlement state, adjustment-policy authority, receipt-site authority, accepted/rejected quantity projections, integer adjustment conservation, tenant and collaboration boundaries, lot visibility after buyer receipt, inventory conservation, site transfers, expiry/recall-blocked usage, authorized quarantine release, insufficient stock, unknown-payment reconciliation before retry, idempotent funding/settlement retries, and independent Solana publication state.
 
 ### HTTP seam
 
-`apps/api/src/app.controller.test.ts` covers health, local preview configuration, tenant-scoped purchase-order reads, tenant-scoped evidence presigning, recall impact reads, and the documented PO-to-verification HTTP path through Fastify injection. Future endpoint tests should use the same seam and synthetic headers until the identity provider adapter is configured.
+`apps/api/src/app.controller.test.ts` covers health, local preview configuration, tenant-scoped purchase-order reads, tenant-scoped evidence presigning, buyer QA access to only evidence attached to a PO, recall impact reads, and the documented PO-to-verification HTTP path through Fastify injection. Future endpoint tests should use the same seam and synthetic headers until the identity provider adapter is configured.
 
 `apps/api/src/identity.test.ts` covers the application-owned identity seam, verifies that the local preview adapter rejects incomplete tenant context, exercises RS256 bearer validation for service integrations, and verifies the HMAC session cookie consumed after the Rauthy callback.
 
@@ -46,7 +46,7 @@ The previous browser golden-path spec was removed from CI because it depended on
 
 ### PostgreSQL seam
 
-`apps/api/src/persistence.integration.test.ts` runs against `TEST_DATABASE_URL` when configured. It applies the checked-in migration and verifies normalized tenant settings, procurement, condition metrics, private evidence references, receipts, QA quantities, site holdings, settlement splits, audit, and outbox persistence in one transaction; it also asserts that the legacy singleton is not written. CI provides PostgreSQL 17; local runs skip this seam when no test database is configured.
+`apps/api/src/persistence.integration.test.ts` runs against `TEST_DATABASE_URL` when configured. It applies the checked-in migrations and verifies normalized tenant settings, procurement, condition metrics and coverage, private evidence references, receipts, QA quantities, site holdings, settlement splits, audit, and outbox persistence in one transaction; it also asserts that the legacy singleton is not written. CI provides PostgreSQL 17; local runs skip this seam when no test database is configured.
 
 ### Chain seam
 

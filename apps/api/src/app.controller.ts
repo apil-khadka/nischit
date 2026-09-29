@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Body, Controller, Get, Headers, Inject, Param, Post, Res } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import { conflict, DomainError, notFound } from "@nischit/domain";
+import { EvidenceObjectAlreadyExistsError } from "@nischit/storage";
 import { EngineService } from "./engine.service.js";
 import { EvidenceScanError, validateEvidenceContent } from "./evidence-scanner.js";
 
@@ -159,13 +160,19 @@ export class AppController {
         reply.code(503);
         return { error: "EVIDENCE_SCAN_FAILED", message: "Evidence could not be scanned; retry after the scanner is available" };
       }
-      const result = await this.service.objectStore.putEvidence({
-        tenantId: actor.tenantId,
-        objectId,
-        contentType,
-        body: content,
-        sha256,
-      });
+      let result;
+      try {
+        result = await this.service.objectStore.putEvidence({
+          tenantId: actor.tenantId,
+          objectId,
+          contentType,
+          body: content,
+          sha256,
+        });
+      } catch (error) {
+        if (error instanceof EvidenceObjectAlreadyExistsError) throw conflict(error.message);
+        throw error;
+      }
       return { ...result, tenantId: actor.tenantId, objectId };
     });
   }
@@ -181,6 +188,36 @@ export class AppController {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(objectId)) throw conflict("Evidence objectId is invalid");
       const url = await this.service.objectStore.presignEvidence({ tenantId: actor.tenantId, objectId });
       return { tenantId: actor.tenantId, objectId, url };
+    });
+  }
+
+  @Get("purchase-orders/:id/evidence/:objectId")
+  presignPurchaseOrderEvidence(
+    @Param("id") id: string,
+    @Param("objectId") objectId: string,
+    @Headers() headers: HeadersShape,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    return this.execute(reply, async () => {
+      const actor = this.actor(headers);
+      if (!this.service.objectStore) {
+        reply.code(503);
+        return { error: "OBJECT_STORE_UNAVAILABLE", message: "Evidence storage is not configured" };
+      }
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(objectId)) throw conflict("Evidence objectId is invalid");
+      const location = this.service.engine.evidenceStorageLocation(actor, id, objectId);
+      let stored;
+      try {
+        stored = await this.service.objectStore.getEvidence(location);
+      } catch {
+        reply.code(503);
+        return { error: "EVIDENCE_VERIFICATION_FAILED", message: "Stored evidence could not be verified" };
+      }
+      if (stored.sha256.toLowerCase() !== location.sha256.toLowerCase()) {
+        throw conflict("Stored evidence does not match the checksum attached to this purchase order");
+      }
+      const url = await this.service.objectStore.presignEvidence(location);
+      return { tenantId: location.tenantId, objectId: location.objectId, url };
     });
   }
 
@@ -272,6 +309,10 @@ export class AppController {
   @Post("purchase-orders/:id/settle")
   settle(@Param("id") id: string, @Headers() headers: HeadersShape, @Res({ passthrough: true }) reply: FastifyReply) {
     return this.execute(reply, () => this.service.engine.settle(this.actor(headers), id, headers["idempotency-key"]?.toString()));
+  }
+  @Post("purchase-orders/:id/reconcile-payment")
+  reconcilePayment(@Param("id") id: string, @Headers() headers: HeadersShape, @Res({ passthrough: true }) reply: FastifyReply) {
+    return this.execute(reply, () => this.service.engine.reconcileSettlementPayment(this.actor(headers), id));
   }
   @Post("purchase-orders/:id/refund")
   refund(@Param("id") id: string, @Headers() headers: HeadersShape, @Body() body: BodyShape, @Res({ passthrough: true }) reply: FastifyReply) {

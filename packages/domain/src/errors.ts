@@ -9,6 +9,20 @@ export class DomainError extends Error {
   }
 }
 
+export class PaymentOutcomeUnknownError extends DomainError {
+  constructor(message = "Payment submission outcome is unknown and must be reconciled before retrying") {
+    super(message, "PAYMENT_OUTCOME_UNKNOWN", 503);
+    this.name = "PaymentOutcomeUnknownError";
+  }
+}
+
+export class PaymentNotSubmittedError extends DomainError {
+  constructor(message = "No payment transaction was submitted; retry is safe") {
+    super(message, "PAYMENT_NOT_SUBMITTED", 503);
+    this.name = "PaymentNotSubmittedError";
+  }
+}
+
 export const forbidden = (message = "Action is not allowed") =>
   new DomainError(message, "FORBIDDEN", 403);
 export const notFound = (message = "Resource not found") =>

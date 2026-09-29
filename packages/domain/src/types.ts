@@ -95,6 +95,8 @@ export interface AcceptancePolicy {
   minShelfLifeDays: number;
   minTemperatureCelsius: number;
   maxTemperatureCelsius: number;
+  /** Maximum allowed time between expected telemetry readings for this product. */
+  maxTelemetryGapSeconds: number;
   requiredDocuments: string[];
   allowAdjustmentBps: boolean;
 }
@@ -172,6 +174,9 @@ export interface ConditionReport {
   excursionCount: number;
   longestExcursionSeconds: number;
   missingSequenceCount: number;
+  maximumObservedGapSeconds?: number;
+  coverageComplete: boolean;
+  evidenceIntegrityValid: boolean;
   signatureCoverage: number;
   hashChainValid: boolean;
   documents: EvidenceDocument[];
@@ -253,6 +258,8 @@ export interface Settlement {
   buyerCreditBaseUnits?: bigint;
   status: SettlementStatus;
   paymentReference?: string;
+  pendingAction?: "fund" | "settle" | "refund";
+  paymentActionPreviousStatus?: SettlementStatus;
   confirmedAt?: string;
 }
 
@@ -353,6 +360,7 @@ export interface QAQueueItem {
   conditionStatus?: ConditionStatus;
   readingCount?: number;
   documentCount?: number;
+  evidenceDocuments?: Array<Pick<EvidenceDocument, "name" | "sha256" | "objectId" | "contentType">>;
 }
 
 export interface FinanceQueueItem {
