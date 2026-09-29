@@ -7,6 +7,7 @@ const productionValues = {
   ATTESTATION_MODE: "solana",
   TEMPO_RPC_URL: "http://127.0.0.1:8545",
   TEMPO_ESCROW_ADDRESS: `0x${"1".repeat(40)}`,
+  TEMPO_ESCROW_DEPLOYMENT_BLOCK: "1",
   TEMPO_PAYER_PRIVATE_KEY: `0x${"1".repeat(64)}`,
   TEMPO_TOKEN_ADDRESSES_JSON: JSON.stringify({ TEST_USD: `0x${"2".repeat(40)}` }),
   TEMPO_SUPPLIER_ADDRESSES_JSON: JSON.stringify({ "preview-supplier": `0x${"3".repeat(40)}` }),
