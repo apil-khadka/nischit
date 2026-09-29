@@ -19,7 +19,7 @@ test("public navigation reaches every product page", async ({ page }) => {
 test("preview roles show role-specific work and open its record", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByRole("note")).toContainText("Sample records and simulated actions");
-  await expect(page.getByRole("heading", { level: 1, name: "Work that needs your attention" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Buyer work queue" })).toBeVisible();
 
   await page.getByRole("button", { name: /Review High-Fidelity Taq Polymerase/ }).click();
   await expect(page.getByRole("heading", { name: "High-Fidelity Taq Polymerase 5U/µL" })).toBeVisible();

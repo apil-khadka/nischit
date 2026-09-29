@@ -21,6 +21,7 @@ import { apiBase, request } from "./workspace/client";
 import { IntegrationReadinessPanel } from "./workspace/integration-readiness-panel";
 import { WorkspaceSidebar } from "./workspace/sidebar";
 import { RecordQueue, StateMark } from "./workspace/record-queue";
+import { QueueOverviewPanel } from "./workspace/queue-overview";
 import { pageMeta, type IntegrationReadiness, type PageId, type RoleSession, type WorkRow, type WorkspaceRole } from "./workspace/shared";
 import { initialSession, roleDefaults } from "./workspace/session-config";
 import { RoleRulesPanel, WorkflowGuide } from "./workspace/workflow-panels";
@@ -264,6 +265,7 @@ export default function Workspace() {
 
   if (!session && authStatus === "loading") return <SessionLoadingState />;
   if (!session) return <ProductionAccessGate status={authStatus === "signed-out" ? "signed-out" : "unavailable"} />;
+  const pageTitle = activePage === "overview" && session.role === "buyer" ? "Buyer work queue" : pageMeta[activePage].title;
 
   return (
     <AppShell
@@ -278,6 +280,7 @@ export default function Workspace() {
             <div className="session-context">
               {session.kind === "preview" ? (
                 <label className="workspace-role-picker-label">
+                  <span className="workspace-role-caption">Role:</span>
                   <select
                     aria-label="Switch preview role"
                     value={session.role}
@@ -289,12 +292,12 @@ export default function Workspace() {
                     }}
                     className="workspace-role-select"
                   >
-                    <option value="buyer">Role: Procurement</option>
-                    <option value="supplier">Role: Supplier</option>
-                    <option value="receiving">Role: Receiving</option>
-                    <option value="qa">Role: QA Reviewer</option>
-                    <option value="finance">Role: Finance</option>
-                    <option value="auditor">Role: Auditor</option>
+                    <option value="buyer">Procurement</option>
+                    <option value="supplier">Supplier</option>
+                    <option value="receiving">Receiving</option>
+                    <option value="qa">QA reviewer</option>
+                    <option value="finance">Finance</option>
+                    <option value="auditor">Auditor</option>
                   </select>
                 </label>
               ) : null}
@@ -318,7 +321,12 @@ export default function Workspace() {
         <header className="workspace-page-heading">
           <div>
             <Text type="supporting" className="workspace-page-eyebrow">{pageMeta[activePage].label} · {session.role}</Text>
-            <Heading level={1}>{pageMeta[activePage].title}</Heading>
+            <Heading level={1}>
+              {pageTitle}
+              {activePage === "overview" && pageState.status === "ready" ? (
+                <span className="workspace-heading-count" aria-label={`${pageState.rows.length} pending decisions`}>{pageState.rows.length}</span>
+              ) : null}
+            </Heading>
             <Text as="p" type="supporting">{pageMeta[activePage].description}</Text>
           </div>
         </header>
@@ -326,17 +334,19 @@ export default function Workspace() {
         {/* Top Workbench Action & Breadcrumb Toolbar */}
         <div className="workbench-toolbar">
           <div className="workbench-toolbar-left">
-            <div className="workbench-breadcrumbs">
-              <span className="crumb-root">Workspace</span>
-              <span className="crumb-sep">/</span>
-              <span className={`crumb-page ${!selected ? "crumb-active" : ""}`}>{pageMeta[activePage].label}</span>
-              {selected ? (
-                <>
-                  <span className="crumb-sep">/</span>
-                  <span className="crumb-active">{selected.reference}</span>
-                </>
-              ) : null}
-            </div>
+            {activePage !== "overview" || selected ? (
+              <div className="workbench-breadcrumbs">
+                <span className="crumb-root">Workspace</span>
+                <span className="crumb-sep">/</span>
+                <span className={`crumb-page ${!selected ? "crumb-active" : ""}`}>{pageMeta[activePage].label}</span>
+                {selected ? (
+                  <>
+                    <span className="crumb-sep">/</span>
+                    <span className="crumb-active">{selected.reference}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
 
             {activePage === "integrations" || activePage === "public" ? null : activePage === "overview" ? (
               <div className="workbench-tabs" role="tablist">
@@ -490,15 +500,7 @@ export default function Workspace() {
               <div className="workbench-split-layout">
                 <div className="workbench-master-pane">
                   {pageState.rows.length ? (
-                    <Card padding={0} className="queue-card">
-                      <div className="queue-heading">
-                        <div>
-                          <Heading level={2}>{activePage === "overview" ? "Next decisions" : pageMeta[activePage].title}</Heading>
-                          <Text type="supporting">{pageState.rows.length} record{pageState.rows.length === 1 ? "" : "s"} visible to this workspace</Text>
-                        </div>
-                      </div>
-                      <RecordQueue rows={pageState.rows} page={activePage} role={session.role} selectedId={selected.id} onSelect={setSelected} />
-                    </Card>
+                    <QueueCard rows={pageState.rows} page={activePage} role={session.role} selectedId={selected.id} onSelect={setSelected} />
                   ) : null}
                 </div>
                 <div className="workbench-detail-pane">
@@ -524,16 +526,13 @@ export default function Workspace() {
               </div>
             ) : (
               <>
-                {pageState.rows.length ? (
-                  <Card padding={0} className="queue-card">
-                    <div className="queue-heading">
-                      <div>
-                        <Heading level={2}>{activePage === "overview" ? "Next decisions" : pageMeta[activePage].title}</Heading>
-                        <Text type="supporting">{pageState.rows.length} record{pageState.rows.length === 1 ? "" : "s"} visible to this workspace</Text>
-                      </div>
-                    </div>
-                    <RecordQueue rows={pageState.rows} page={activePage} role={session.role} onSelect={setSelected} />
-                  </Card>
+                {pageState.rows.length && activePage === "overview" && pageState.status === "ready" ? (
+                  <div className="workspace-overview-grid">
+                    <QueueCard rows={pageState.rows} page={activePage} role={session.role} onSelect={setSelected} variant="overview" />
+                    <QueueOverviewPanel rows={pageState.rows} role={session.role} onSelect={setSelected} />
+                  </div>
+                ) : pageState.rows.length ? (
+                  <QueueCard rows={pageState.rows} page={activePage} role={session.role} onSelect={setSelected} />
                 ) : null}
               </>
             )}
@@ -541,6 +540,36 @@ export default function Workspace() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function QueueCard({
+  rows,
+  page,
+  role,
+  selectedId,
+  onSelect,
+  variant = "default",
+}: {
+  rows: WorkRow[];
+  page: PageId;
+  role: WorkspaceRole;
+  selectedId?: string;
+  onSelect: (row: WorkRow) => void;
+  variant?: "default" | "overview";
+}) {
+  return (
+    <Card padding={0} className="queue-card">
+      <div className="queue-heading">
+        <div>
+          <Heading level={2}>{page === "overview" ? "Next decisions" : pageMeta[page].title}</Heading>
+          {variant === "overview" ? null : (
+            <Text type="supporting">{rows.length} record{rows.length === 1 ? "" : "s"} visible to this workspace</Text>
+          )}
+        </div>
+      </div>
+      <RecordQueue rows={rows} page={page} role={role} selectedId={selectedId} onSelect={onSelect} variant={variant} />
+    </Card>
   );
 }
 
