@@ -1,12 +1,20 @@
+---
+title: Implementation status
+description: Review implemented behavior, known limitations, and the remaining production-readiness gates.
+docType: reference
+---
+
 # Implementation status
 
-Updated 28 September 2026.
+Updated 29 September 2026.
 
 This repository contains an evolving implementation of the lab-supply workflow, including API, persistence, identity, storage, and chain-adapter code. Local verification uses synthetic records and deterministic adapters. A passing local check does not prove production deployment, regulatory compliance, customer validation, or live payment execution. Current production readiness gates are listed below; product boundaries and interface behavior are documented in [UI workflow research](ui-workflow-research.md) and [workflow invariants](workflow-invariants.md).
 
 ## Implemented
 
 - pnpm TypeScript workspace with a domain package, NestJS/Fastify API, and Next.js/Astryx web app.
+- Modular condition-evidence assessment and workspace UI panels, with explicit no-`any` and documentation metadata checks in the contributor workflow.
+- VitePress documentation site sourced from the Markdown under `docs/`; CI builds the site and checks its page metadata.
 - Pure domain engine for tenant memberships, collaboration grants, products, versioned PO policy, supplier acknowledgement, funding, lot/shipment declaration, condition evidence, receiving, QA decisions, usage, quarantine/recall, mock settlement, and public verification receipts.
 - Append-only inventory transfers between sites, expiry- and recall-blocked usage/settlement, and authorized quarantine release with conservation tests.
 - Goods receipts retain their receiving site plus accepted/rejected quantity projections; QA cannot decide against a different site.

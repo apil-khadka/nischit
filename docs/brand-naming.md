@@ -1,3 +1,9 @@
+---
+title: Brand and naming
+description: Use consistent product names and accurate language for Nischit's workflows and boundaries.
+docType: reference
+---
+
 # Brand and naming
 
 Nischit is the product and repository name. Use this spelling consistently in code comments, documentation, interface text, and issue reports.

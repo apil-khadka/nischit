@@ -1,3 +1,9 @@
+---
+title: Workflow invariants
+description: Review the business and safety rules that must hold across procurement, evidence, QA, inventory, and settlement.
+docType: reference
+---
+
 # Workflow invariants
 
 This is the implementation reference for inventory, QA, evidence, and settlement correctness. These rules apply across tenants and cannot be disabled by customization. Examples use synthetic data.

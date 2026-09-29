@@ -1,3 +1,9 @@
+---
+title: Nischit domain language
+description: Use shared terms for parties, purchasing, evidence, receiving, quality, inventory, and settlement.
+docType: reference
+---
+
 # Nischit domain language
 
 This glossary defines the shared business language for Nischit. It describes the diagnostic-supply workflow without prescribing a programming language or infrastructure.

@@ -1,3 +1,9 @@
+---
+title: Security and privacy requirements
+description: Review data boundaries, tenant isolation, evidence handling, and security requirements.
+docType: reference
+---
+
 # Security and privacy requirements
 
 ## Security position

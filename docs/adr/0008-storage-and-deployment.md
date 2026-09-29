@@ -1,3 +1,9 @@
+---
+title: Storage and deployment topology
+description: Record the roles of PostgreSQL, Valkey, object storage, and the Compose deployment processes.
+docType: explanation
+---
+
 # Storage, job state, and deployment topology
 
 **Status: accepted.** This records the current deployment architecture while keeping provider-specific services behind application interfaces.

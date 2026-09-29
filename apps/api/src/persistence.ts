@@ -5,6 +5,7 @@ import type {
   ConditionReport,
   EngineSnapshot,
   GoodsReceipt,
+  Holding,
   InventoryEvent,
   Lot,
   Membership,
@@ -22,6 +23,82 @@ const BIGINT_PREFIX = "__nischit_bigint__:";
 const BIGINT_VALUE_PREFIX = `${BIGINT_PREFIX}value:`;
 const STRING_VALUE_PREFIX = `${BIGINT_PREFIX}string:`;
 
+type DbRow<T extends object> = T & Record<string, unknown>;
+type DbTimestamp = Date | string;
+type DbNumeric = number | string;
+type TenantDbRow = DbRow<{ id: string; name: string; created_at: DbTimestamp }>;
+type MembershipDbRow = DbRow<{ tenant_id: string; user_id: string; display_name: string | null; roles: Membership["roles"] }>;
+type SettingsDbRow = DbRow<{ tenant_id: string; timezone: string; sites: unknown; usage_reason_codes: unknown }>;
+type GrantDbRow = DbRow<{
+  id: string; granting_tenant_id: string; receiving_tenant_id: string;
+  resource_type: CollaborationGrant["resourceType"]; resource_id: string;
+  actions: CollaborationGrant["actions"]; status: CollaborationGrant["status"]; created_at: DbTimestamp;
+}>;
+type ProductDbRow = DbRow<{
+  id: string; tenant_id: string; name: string; manufacturer: string; base_unit: Product["baseUnit"];
+  storage_min_celsius: DbNumeric; storage_max_celsius: DbNumeric; minimum_shelf_life_days: number;
+  required_documents: Product["requiredDocuments"];
+}>;
+type PurchaseOrderDbRow = DbRow<{
+  id: string; tenant_id: string; supplier_tenant_id: string; product_id: string; quantity: number;
+  unit: PurchaseOrder["unit"]; amount_base_units: DbNumeric; token: string; settlement_reference: string;
+  policy: PurchaseOrder["policy"]; terms_hash: string; terms_nonce: string; status: PurchaseOrder["status"];
+  created_at: DbTimestamp; acknowledged_at: DbTimestamp | null;
+}>;
+type LotDbRow = DbRow<{
+  id: string; tenant_id: string; product_id: string; manufacturer_lot_number: string;
+  expiry_date: DbTimestamp; quantity: number; unit: Lot["unit"];
+}>;
+type ShipmentDbRow = DbRow<{
+  id: string; tenant_id: string; supplier_tenant_id: string; purchase_order_id: string;
+  lot_id: string; quantity: number; dispatched_at: DbTimestamp; status: Shipment["status"];
+}>;
+type ConditionReportDbRow = DbRow<{
+  id: string; shipment_id: string; status: ConditionReport["status"]; reading_count: number;
+  first_reading_at: DbTimestamp | null; last_reading_at: DbTimestamp | null;
+  minimum_temperature_celsius: DbNumeric | null; maximum_temperature_celsius: DbNumeric | null;
+  average_temperature_celsius: DbNumeric | null; excursion_count: number; longest_excursion_seconds: DbNumeric;
+  missing_sequence_count: number; maximum_observed_gap_seconds: DbNumeric | null; coverage_complete: boolean;
+  evidence_integrity_valid: boolean; signature_coverage: DbNumeric; hash_chain_valid: boolean;
+  documents: unknown; readings_hash: string; telemetry_merkle_root: string; created_at: DbTimestamp;
+}>;
+type ReceiptDbRow = DbRow<{
+  id: string; tenant_id: string; purchase_order_id: string; shipment_id: string; site_id: string;
+  received_quantity: number; accepted_quantity: number | null; rejected_quantity: number | null;
+  status: GoodsReceipt["status"]; received_at: DbTimestamp; received_by: string;
+}>;
+type InventoryEventDbRow = DbRow<{
+  id: string; tenant_id: string; lot_id: string; site_id: string; kind: InventoryEvent["kind"];
+  quantity: number; unit: InventoryEvent["unit"]; source_id: string; reason: string | null;
+  reason_code: string | null; created_at: DbTimestamp; created_by: string;
+}>;
+type HoldingDbRow = DbRow<{
+  tenant_id: string; lot_id: string; site_id: string; unit: Holding["unit"];
+  on_hand: number; quarantined: number; usable: number;
+}>;
+type QADecisionDbRow = DbRow<{
+  id: string; receipt_id: string; status: QADecision["status"]; reason: string;
+  adjustment_bps: number; evidence_hash: string; decided_by: string; decided_at: DbTimestamp;
+}>;
+type SettlementDbRow = DbRow<{
+  id: string; purchase_order_id: string; amount_base_units: DbNumeric; adjustment_bps: number;
+  supplier_amount_base_units: DbNumeric | null; buyer_credit_base_units: DbNumeric | null;
+  status: Settlement["status"]; payment_reference: string | null;
+  pending_action: Settlement["pendingAction"] | null;
+  payment_action_previous_status: Settlement["paymentActionPreviousStatus"] | null;
+  confirmed_at: DbTimestamp | null;
+}>;
+type RecallDbRow = DbRow<{
+  id: string; tenant_id: string; lot_id: string; reason: string; status: Recall["status"];
+  created_at: DbTimestamp; created_by: string;
+}>;
+type IdempotencyDbRow = DbRow<{ idempotency_key: string; result: unknown }>;
+type AuditDbRow = DbRow<{
+  id: string; tenant_id: string; actor_id: string; action: string; resource_type: string;
+  resource_id: string; metadata: unknown; created_at: DbTimestamp;
+}>;
+type SignatureDbRow = DbRow<{ purchase_order_id: string; signature: string }>;
+
 const encodeJson = (value: unknown) => JSON.stringify(value, (_key, nested) =>
   typeof nested === "bigint"
     ? BIGINT_VALUE_PREFIX + nested.toString()
@@ -30,7 +107,7 @@ const encodeJson = (value: unknown) => JSON.stringify(value, (_key, nested) =>
       : nested,
 );
 
-const decodeJson = (value: unknown) => JSON.parse(
+const decodeJson = <T = unknown>(value: unknown): T => JSON.parse(
   typeof value === "string" ? value : JSON.stringify(value),
   (_key, nested) => {
     if (typeof nested !== "string") return nested;
@@ -62,14 +139,14 @@ const decodeJson = (value: unknown) => JSON.parse(
     }
     return nested;
   },
-);
+) as T;
 
 export function encodeSnapshot(snapshot: EngineSnapshot): string {
   return encodeJson(snapshot);
 }
 
 export function decodeSnapshot(serialized: string): EngineSnapshot {
-  return decodeJson(serialized) as EngineSnapshot;
+  return decodeJson<EngineSnapshot>(serialized);
 }
 
 export interface OutboxInsert {
@@ -116,7 +193,7 @@ export class PostgresStateStore {
       "SELECT schema_version FROM nischit_persistence_meta WHERE id = 'normalized-v1'",
     );
     if (meta.rowCount) return this.loadNormalized();
-    const legacy = await this.pool.query<{ state: unknown }>(
+    const legacy = await this.pool.query<DbRow<{ state: unknown }>>(
       "SELECT state FROM nischit_engine_state WHERE id = 'singleton'",
     );
     if (legacy.rowCount === 0) return undefined;
@@ -124,25 +201,25 @@ export class PostgresStateStore {
   }
 
   private async loadNormalized(): Promise<EngineSnapshot | undefined> {
-    const tenantRows = await this.pool.query("SELECT * FROM tenants ORDER BY created_at, id");
+    const tenantRows = await this.pool.query<TenantDbRow>("SELECT * FROM tenants ORDER BY created_at, id");
     if (tenantRows.rowCount === 0) return undefined;
-    const membershipRows: Record<string, any>[] = [];
-    const settingsRows: Record<string, any>[] = [];
-    const grantRows: Record<string, any>[] = [];
-    const productRows: Record<string, any>[] = [];
-    const poRows: Record<string, any>[] = [];
-    const lotRows: Record<string, any>[] = [];
-    const shipmentRows: Record<string, any>[] = [];
-    const reportRows: Record<string, any>[] = [];
-    const receiptRows: Record<string, any>[] = [];
-    const inventoryRows: Record<string, any>[] = [];
-    const holdingRows: Record<string, any>[] = [];
-    const qaRows: Record<string, any>[] = [];
-    const settlementRows: Record<string, any>[] = [];
-    const recallRows: Record<string, any>[] = [];
-    const idempotencyRows: Record<string, any>[] = [];
-    const auditRows: Record<string, any>[] = [];
-    const signatureRows: Record<string, any>[] = [];
+    const membershipRows: MembershipDbRow[] = [];
+    const settingsRows: SettingsDbRow[] = [];
+    const grantRows: GrantDbRow[] = [];
+    const productRows: ProductDbRow[] = [];
+    const poRows: PurchaseOrderDbRow[] = [];
+    const lotRows: LotDbRow[] = [];
+    const shipmentRows: ShipmentDbRow[] = [];
+    const reportRows: ConditionReportDbRow[] = [];
+    const receiptRows: ReceiptDbRow[] = [];
+    const inventoryRows: InventoryEventDbRow[] = [];
+    const holdingRows: HoldingDbRow[] = [];
+    const qaRows: QADecisionDbRow[] = [];
+    const settlementRows: SettlementDbRow[] = [];
+    const recallRows: RecallDbRow[] = [];
+    const idempotencyRows: IdempotencyDbRow[] = [];
+    const auditRows: AuditDbRow[] = [];
+    const signatureRows: SignatureDbRow[] = [];
 
     for (const tenant of tenantRows.rows) {
       const client = await this.pool.connect();
@@ -151,23 +228,23 @@ export class PostgresStateStore {
         await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenant.id]);
         const [memberships, settings, grants, products, purchaseOrders, lots, shipments, reports, receipts,
           inventory, holdings, decisions, settlements, recalls, idempotency, audit, signatures] = await Promise.all([
-          client.query("SELECT * FROM memberships ORDER BY tenant_id, user_id"),
-          client.query("SELECT * FROM tenant_settings ORDER BY tenant_id"),
-          client.query("SELECT * FROM collaboration_grants ORDER BY created_at, id"),
-          client.query("SELECT * FROM products ORDER BY created_at, id"),
-          client.query("SELECT * FROM purchase_orders ORDER BY created_at, id"),
-          client.query("SELECT * FROM lots ORDER BY id"),
-          client.query("SELECT * FROM shipments ORDER BY dispatched_at, id"),
-          client.query("SELECT * FROM condition_reports ORDER BY created_at, id"),
-          client.query("SELECT * FROM goods_receipts ORDER BY received_at, id"),
-          client.query("SELECT * FROM inventory_events ORDER BY created_at, id"),
-          client.query("SELECT * FROM inventory_holdings ORDER BY tenant_id, lot_id, site_id, unit"),
-          client.query("SELECT * FROM qa_decisions ORDER BY decided_at, id"),
-          client.query("SELECT * FROM settlements ORDER BY id"),
-          client.query("SELECT * FROM recalls ORDER BY created_at, id"),
-          client.query("SELECT * FROM nischit_idempotency ORDER BY idempotency_key"),
-          client.query("SELECT * FROM audit_events ORDER BY created_at, id"),
-          client.query("SELECT * FROM verification_signatures ORDER BY purchase_order_id"),
+          client.query<MembershipDbRow>("SELECT * FROM memberships ORDER BY tenant_id, user_id"),
+          client.query<SettingsDbRow>("SELECT * FROM tenant_settings ORDER BY tenant_id"),
+          client.query<GrantDbRow>("SELECT * FROM collaboration_grants ORDER BY created_at, id"),
+          client.query<ProductDbRow>("SELECT * FROM products ORDER BY created_at, id"),
+          client.query<PurchaseOrderDbRow>("SELECT * FROM purchase_orders ORDER BY created_at, id"),
+          client.query<LotDbRow>("SELECT * FROM lots ORDER BY id"),
+          client.query<ShipmentDbRow>("SELECT * FROM shipments ORDER BY dispatched_at, id"),
+          client.query<ConditionReportDbRow>("SELECT * FROM condition_reports ORDER BY created_at, id"),
+          client.query<ReceiptDbRow>("SELECT * FROM goods_receipts ORDER BY received_at, id"),
+          client.query<InventoryEventDbRow>("SELECT * FROM inventory_events ORDER BY created_at, id"),
+          client.query<HoldingDbRow>("SELECT * FROM inventory_holdings ORDER BY tenant_id, lot_id, site_id, unit"),
+          client.query<QADecisionDbRow>("SELECT * FROM qa_decisions ORDER BY decided_at, id"),
+          client.query<SettlementDbRow>("SELECT * FROM settlements ORDER BY id"),
+          client.query<RecallDbRow>("SELECT * FROM recalls ORDER BY created_at, id"),
+          client.query<IdempotencyDbRow>("SELECT * FROM nischit_idempotency ORDER BY idempotency_key"),
+          client.query<AuditDbRow>("SELECT * FROM audit_events ORDER BY created_at, id"),
+          client.query<SignatureDbRow>("SELECT * FROM verification_signatures ORDER BY purchase_order_id"),
         ]);
         membershipRows.push(...memberships.rows);
         settingsRows.push(...settings.rows);
@@ -201,8 +278,8 @@ export class PostgresStateStore {
     const tenantSettings: TenantSettings[] = settingsRows.map((row) => ({
       tenantId: row.tenant_id,
       timezone: row.timezone,
-      sites: decodeJson(row.sites),
-      usageReasonCodes: decodeJson(row.usage_reason_codes),
+      sites: decodeJson<TenantSettings["sites"]>(row.sites),
+      usageReasonCodes: decodeJson<TenantSettings["usageReasonCodes"]>(row.usage_reason_codes),
     }));
     const grants: CollaborationGrant[] = grantRows.map((row) => ({
       id: row.id, grantingTenantId: row.granting_tenant_id, receivingTenantId: row.receiving_tenant_id,
@@ -217,7 +294,7 @@ export class PostgresStateStore {
     const purchaseOrders: PurchaseOrder[] = poRows.map((row) => ({
       id: row.id, tenantId: row.tenant_id, supplierTenantId: row.supplier_tenant_id, productId: row.product_id,
       quantity: row.quantity, unit: row.unit, amountBaseUnits: BigInt(String(row.amount_base_units)), token: row.token,
-      settlementReference: row.settlement_reference, policy: decodeJson(row.policy), termsHash: row.terms_hash,
+      settlementReference: row.settlement_reference, policy: decodeJson<PurchaseOrder["policy"]>(row.policy), termsHash: row.terms_hash,
       termsNonce: row.terms_nonce, status: row.status, createdAt: iso(row.created_at),
       ...(row.acknowledged_at ? { acknowledgedAt: iso(row.acknowledged_at) } : {}),
     }));
@@ -243,7 +320,7 @@ export class PostgresStateStore {
       coverageComplete: row.coverage_complete ?? false,
       evidenceIntegrityValid: row.evidence_integrity_valid ?? false,
       signatureCoverage: Number(row.signature_coverage),
-      hashChainValid: row.hash_chain_valid, documents: decodeJson(row.documents), readingsHash: row.readings_hash,
+      hashChainValid: row.hash_chain_valid, documents: decodeJson<ConditionReport["documents"]>(row.documents), readingsHash: row.readings_hash,
       telemetryMerkleRoot: row.telemetry_merkle_root, createdAt: iso(row.created_at),
     }));
     const receipts: GoodsReceipt[] = receiptRows.map((row) => ({
@@ -281,11 +358,11 @@ export class PostgresStateStore {
       createdAt: iso(row.created_at), createdBy: row.created_by,
     }));
     const idempotency: Record<string, unknown> = Object.fromEntries(
-      idempotencyRows.map((row) => [row.idempotency_key, decodeJson(row.result)]),
+      idempotencyRows.map((row) => [row.idempotency_key, decodeJson<unknown>(row.result)]),
     );
     const audit: AuditEvent[] = auditRows.map((row) => ({
       id: row.id, tenantId: row.tenant_id, actorId: row.actor_id, action: row.action, resourceType: row.resource_type,
-      resourceId: row.resource_id, metadata: decodeJson(row.metadata), createdAt: iso(row.created_at),
+      resourceId: row.resource_id, metadata: decodeJson<AuditEvent["metadata"]>(row.metadata), createdAt: iso(row.created_at),
     }));
     const verificationSignatures = Object.fromEntries(signatureRows.map((row) => [row.purchase_order_id, row.signature]));
     return { tenants, memberships, grants, products, purchaseOrders, lots, shipments, conditionReports, receipts,

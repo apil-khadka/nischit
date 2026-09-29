@@ -1,3 +1,9 @@
+---
+title: Multi-tenancy and customization
+description: Learn how tenant data stays isolated and how scoped collaboration supports shared workflows.
+docType: explanation
+---
+
 # Multi-tenancy and customization
 
 ## Yes: Nischit is multi-tenant

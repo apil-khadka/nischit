@@ -1,4 +1,10 @@
-# Test guide
+---
+title: Plain-language behavior guide
+description: Edit expected product behavior in natural language before changing implementation and automated checks.
+docType: reference
+---
+
+# Plain-language behavior guide
 
 This guide describes expected behavior in ordinary language. Edit these statements when product behavior should change; automated checks should then be adapted to match the new expectations. You can edit this guide without writing code. The test runner does not execute this file.
 
@@ -38,4 +44,4 @@ This guide describes expected behavior in ordinary language. Edit these statemen
 
 A passing run means the automated cases that ran passed under their test conditions. It does not mean every expectation in this guide is covered, and it does not prove a production identity provider, storage service, payment network, contract, or deployment is configured correctly. Live network checks, full browser workflows, backup restoration, and deployment security reviews remain separate verification work.
 
-For the commands and detailed coverage map, see [the testing reference](testing.md). The repository commands are also listed in the [README](../README.md#verification-commands).
+For the commands and detailed coverage map, see [the testing reference](testing.md). The repository commands are also listed in the [README](https://github.com/apil-khadka/nischit#verification-commands).

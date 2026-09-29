@@ -1,3 +1,9 @@
+---
+title: Nischit design system
+description: Follow the component, theme, accessibility, and visual conventions used by the web application.
+docType: reference
+---
+
 # Nischit design system
 
 ## Direction

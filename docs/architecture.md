@@ -1,8 +1,14 @@
+---
+title: Nischit architecture
+description: Understand Nischit's modular monolith, runtime processes, domain boundaries, and infrastructure adapters.
+docType: explanation
+---
+
 # Nischit architecture
 
 ## Decision summary
 
-Nischit should start as a **modular monolith**, not a microservice fleet. The application has one deployable API, one web application, and one worker process that share domain packages and database migrations. Internal modules own their business rules behind small interfaces; infrastructure integrations are adapters at explicit seams.
+Nischit uses a **modular monolith**, with a separately deployable web app, API, and worker sharing domain packages and database migrations. Internal modules own their business rules behind small interfaces; infrastructure integrations are adapters at explicit seams.
 
 This shape keeps operational behavior in one understandable system while preserving seams for independently deployed modules if measured load, resilience, or organizational ownership justifies that change.
 
@@ -40,6 +46,8 @@ flowchart TB
 
 Next.js App Router and TypeScript using Astryx components and the Nischit Butter theme. It renders tenant-scoped screens, mobile receiving workflows, QA queues, verification reports, and operational dashboards. The browser never decides the tenant or permission; it displays context supplied by the API and sends an explicit tenant context with each request.
 
+The workspace route coordinates the screen state while focused modules own row mapping and preview data, session defaults, navigation, integration readiness, and workflow guidance. Keep those concerns in the `apps/web/app/workspace/` modules as the screen grows.
+
 ### `apps/api`
 
 NestJS using the Fastify adapter. The API is the only public application interface for business actions. It authenticates the request, resolves the active tenant, authorizes the action, validates input, opens a tenant-scoped database transaction, invokes the domain module, writes an outbox event, and returns a result.
@@ -63,6 +71,8 @@ Each module should have a small public interface and hide its implementation. Do
 - **Audit and verification** — append-only application timeline, commitments, exports, and deliberately redacted public verification view.
 
 The modules should communicate through domain commands and events, not by reaching into one another's tables. A synchronous call is fine inside the monolith when the caller needs an immediate result; the outbox is used for work that can retry or run later.
+
+In `packages/domain/src`, `engine.ts` coordinates domain commands while `condition-evidence.ts` validates submitted evidence, calculates telemetry metrics and commitments, and evaluates dispatch-to-receipt coverage. Keep the evidence calculation independent from command orchestration so it can be reviewed and changed as a focused domain unit.
 
 ## Stable interfaces and adapters
 

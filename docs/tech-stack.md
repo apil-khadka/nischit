@@ -1,3 +1,9 @@
+---
+title: Technology stack
+description: Find the languages, frameworks, infrastructure, and package boundaries used in this repository.
+docType: reference
+---
+
 # Technology stack
 
 This page records the stack currently used by the repository and the conditions for changing it. The package manifests and lockfile are the source of truth for exact dependency versions.
@@ -6,7 +12,7 @@ This page records the stack currently used by the repository and the conditions 
 
 | Area | Current implementation | Production considerations |
 |---|---|---|
-| Language and runtime | TypeScript, Node.js 22+, pnpm workspaces | Keep strict types and update the lockfile with reviewed dependency changes. |
+| Language and runtime | TypeScript, Node.js 22+, pnpm workspaces | Keep strict typing enabled, do not use explicit `any`, and update the lockfile with reviewed dependency changes. |
 | Web | Next.js App Router, React, Astryx components, StyleX | Review server rendering, browser-visible configuration, accessibility, and cache behavior for each release. |
 | API | NestJS with Fastify | Validate authorization and tenant context at the API boundary for every operation. |
 | Domain | TypeScript modules behind application-owned ports | Keep provider SDKs and persistence models out of the domain layer. |
@@ -16,6 +22,7 @@ This page records the stack currently used by the repository and the conditions 
 | Identity | OIDC through Rauthy with application-owned membership and authorization | Configure session secrets, tenant provisioning, MFA, revocation, and recovery per deployment. |
 | Payments and receipts | Optional Tempo and Solana adapters | Keep disabled until signer custody, privacy, authorization, and reconciliation are reviewed. |
 | Tests | Vitest and PostgreSQL integration tests; Playwright harness | CI runs the repository verification workflow; production environments require additional provider contract checks. |
+| Documentation | Markdown, VitePress, checked frontmatter and CI site build | Keep page types, internal links, and the sidebar aligned with the documentation index. |
 | Deployment | Docker images and Compose files | Compose is a self-hosting option, not an availability or security certification. |
 
 ## Infrastructure boundaries

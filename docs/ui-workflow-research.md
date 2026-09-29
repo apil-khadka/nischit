@@ -1,3 +1,9 @@
+---
+title: Nischit workflow UI research
+description: Read the research and design rationale behind Nischit's receiving, QA, inventory, and settlement interface.
+docType: explanation
+---
+
 # Nischit workflow UI research
 
 Updated 18 September 2026.

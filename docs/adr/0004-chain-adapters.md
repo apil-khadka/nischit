@@ -1,3 +1,9 @@
+---
+title: Tempo and Solana adapters
+description: Explain how payment settlement and public receipt publication stay behind independent chain adapters.
+docType: explanation
+---
+
 # Keep Tempo and Solana behind chain adapters
 
 **Status: accepted.** Tempo is the conditional settlement adapter and Solana is the public receipt/attestation adapter. Domain modules must not import chain SDKs. The first release will not bridge assets or make Solana the operational ledger; each chain receives only the minimum commitment or settlement state needed for verification.

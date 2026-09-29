@@ -1,3 +1,9 @@
+---
+title: Public web application
+description: Reference the public routes, sign-in path, and workspace boundary in the web application.
+docType: reference
+---
+
 # Public web application
 
 The public web application explains Nischit's product boundary and provides entry points for the authenticated workspace. Route structure and copy should remain accurate about which services, integrations, and operational controls are configured in a given deployment.

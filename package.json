@@ -15,15 +15,21 @@
     "test:e2e": "pnpm --filter @nischit/web test:e2e",
     "test:integration": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm --filter @nischit/api test:integration && pnpm --filter @nischit/worker test:integration",
     "test:coverage": "pnpm --filter @nischit/domain test:coverage",
+    "check:no-any": "node scripts/check-no-any.mjs",
+    "check:docs": "node scripts/check-doc-frontmatter.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "db:backup": "bash scripts/backup-postgres.sh",
     "db:restore": "bash scripts/restore-postgres.sh",
-    "verify": "pnpm typecheck && pnpm test && pnpm build",
+    "verify": "pnpm check:no-any && pnpm check:docs && pnpm typecheck && pnpm test && pnpm build",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
+    "vitepress": "^1.6.4",
     "vitest": "^3.1.1"
   }
 }

@@ -1,3 +1,9 @@
+---
+title: Deployment and operations
+description: Run Nischit locally and understand the configuration and operational work required for deployment.
+docType: how-to
+---
+
 # Deployment and operations
 
 Nischit includes Docker images and Compose definitions for local development and self-hosted operation. The production Compose file is a starting deployment topology; it does not provide high availability, managed secrets, security certification, or a guarantee that a particular environment is production-ready.
@@ -32,7 +38,7 @@ The default application configuration uses synthetic records and non-production 
 
 Evidence storage is configured against a private S3-compatible bucket. The API requires a private malware-scanning service. PostgreSQL, Valkey, Rauthy's internal port, the scanner, and the object-store console must not be exposed publicly. Publish only the reverse proxy and restrict host administration.
 
-Before deployment, provision DNS and TLS for separate application and identity hostnames, an S3-compatible private bucket, a reachable malware scanner, durable database and identity volumes, an off-host encrypted backup target, and a supported host architecture. Use the sanitized [production environment example](../production.env.example) as a checklist. Replace every placeholder and supply secrets through a host secret manager or protected environment file that is excluded from Git.
+Before deployment, provision DNS and TLS for separate application and identity hostnames, an S3-compatible private bucket, a reachable malware scanner, durable database and identity volumes, an off-host encrypted backup target, and a supported host architecture. Use the sanitized [production environment example](https://github.com/apil-khadka/nischit/blob/main/production.env.example) as a checklist. Replace every placeholder and supply secrets through a host secret manager or protected environment file that is excluded from Git.
 
 ## First deployment
 

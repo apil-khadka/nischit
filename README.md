@@ -12,6 +12,9 @@ It is designed around production concerns: tenant isolation, private evidence st
 - [Contributor guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Documentation index](docs/README.md)
+- [Active TODO list](TODO.md)
+
+The documentation site uses VitePress. Run `pnpm docs:dev` to preview it locally; see the [documentation index](docs/README.md) for the page map and writing guidance.
 
 ## Development setup
 
@@ -34,13 +37,15 @@ Use only synthetic data in development. Never add credentials, patient informati
 ## Verification commands
 
 ```bash
+pnpm check:no-any
+pnpm check:docs
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm test:integration  # requires TEST_DATABASE_URL
 ```
 
-The CI workflow runs integration verification and the workspace checks on pull requests.
+CI builds the documentation site and runs PostgreSQL integration verification plus the workspace checks on pushes to `main` and pull requests.
 
 To edit the expected behavior in plain language and have the automated checks adapted to it, use the [test guide](docs/test-guide.md).
 

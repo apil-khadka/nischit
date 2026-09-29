@@ -1,3 +1,9 @@
+---
+title: Testing and verification
+description: Choose the checks that fit a code change, from static policy checks to database integration tests.
+docType: how-to
+---
+
 # Testing and verification
 
 The test suite follows the domain seams in [workflow invariants](workflow-invariants.md). Tests assert behavior through public commands and HTTP endpoints; they do not reach into private engine state or mock implementation details.
@@ -10,13 +16,16 @@ pnpm typecheck
 pnpm test
 pnpm test:coverage
 pnpm build
+pnpm check:no-any
+pnpm check:docs
+pnpm docs:build
 pnpm verify
 pnpm test:integration
 docker compose config
 bash -n scripts/backup-postgres.sh scripts/restore-postgres.sh
 ```
 
-`pnpm verify` runs type checking, all unit/API tests, and production builds. `pnpm test:integration` runs the API and worker PostgreSQL suites when `TEST_DATABASE_URL` is configured. `docker compose config` catches malformed service, network, volume, and environment declarations without starting containers. Browser automation remains available through the Playwright harness, but is not currently part of CI until the authenticated session fixture and stable role-action states are in place.
+`pnpm verify` runs the explicit-`any` policy check, documentation metadata check, type checking, unit/API tests, and application production builds. CI also runs `pnpm docs:build` to validate the VitePress site and its internal links. `pnpm test:integration` runs the API and worker PostgreSQL suites when `TEST_DATABASE_URL` is configured. `docker compose config` catches malformed service, network, volume, and environment declarations without starting containers. Browser automation remains available through the Playwright harness, but is not currently part of CI until the authenticated session fixture and stable role-action states are in place.
 
 The web API-client suite covers non-JSON proxy failures, bounded actionable error messages, tenant headers, JSON command payloads, and idempotency headers. The API seam covers liveness/readiness and repeated collaboration grants. Keep these checks aligned with the deployment contract and operational failure modes.
 

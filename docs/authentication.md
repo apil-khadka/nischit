@@ -1,3 +1,9 @@
+---
+title: Authentication and tenant authorization
+description: Configure OIDC sign-in and understand how Nischit resolves tenant membership and permissions.
+docType: how-to
+---
+
 # Authentication and tenant authorization
 
 The web application uses OIDC Authorization Code with S256 PKCE through Rauthy. The API verifies the application session and resolves permissions from Nischit's own tenant membership records. The identity provider authenticates a person; it does not grant access to a tenant or operational action by itself.

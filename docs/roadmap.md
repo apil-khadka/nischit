@@ -1,3 +1,9 @@
+---
+title: Production readiness roadmap
+description: Track the stages and evidence required before Nischit can support production operations.
+docType: reference
+---
+
 # Production readiness roadmap
 
 This roadmap is a prioritization guide, not a delivery commitment. Issues and pull requests should turn each item into a scoped change with an owner, acceptance criteria, and operational impact.
