@@ -9,6 +9,7 @@ This is the active work list. The [roadmap](docs/roadmap.md) explains the produc
 - [x] Add an AST-based check that rejects explicit TypeScript `any` types.
 - [x] Add VitePress source docs, organized navigation, required page metadata, and CI site-build validation.
 - [x] Publish only the generated documentation site to GitHub Pages from `main`.
+- [x] Add Playwright coverage for public navigation, preview workspace records, and phone-width navigation.
 
 ## Documentation and contributor workflow
 
@@ -29,7 +30,7 @@ This is the active work list. The [roadmap](docs/roadmap.md) explains the produc
 ## Product validation
 
 - [ ] Validate workflow language, roles, units, evidence requirements, and exception handling with operators using non-sensitive records.
-- [ ] Add browser coverage after a deterministic authenticated test user and role fixture are available.
+- [ ] Add verified-session browser coverage after an isolated identity-provider test user and deterministic tenant fixture are available.
 - [ ] Record measured workflow outcomes separately from product goals.
 
 ## Maintenance rule

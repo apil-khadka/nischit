@@ -20,7 +20,7 @@ export default defineConfig({
       env: { NODE_ENV: "test", PERSISTENCE_MODE: "memory", PORT: "4000" },
     },
     {
-      command: "pnpm --filter @nischit/web dev -p 3000",
+      command: "pnpm --filter @nischit/web dev",
       url: "http://127.0.0.1:3000",
       reuseExistingServer,
       timeout: 120_000,

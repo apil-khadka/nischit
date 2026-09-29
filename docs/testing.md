@@ -21,11 +21,12 @@ pnpm check:docs
 pnpm docs:build
 pnpm verify
 pnpm test:integration
+pnpm test:e2e
 docker compose config
 bash -n scripts/backup-postgres.sh scripts/restore-postgres.sh
 ```
 
-`pnpm verify` runs the explicit-`any` policy check, documentation metadata check, type checking, unit/API tests, and application production builds. CI also runs `pnpm docs:build` to validate the VitePress site and its internal links. `pnpm test:integration` runs the API and worker PostgreSQL suites when `TEST_DATABASE_URL` is configured. `docker compose config` catches malformed service, network, volume, and environment declarations without starting containers. Browser automation remains available through the Playwright harness, but is not currently part of CI until the authenticated session fixture and stable role-action states are in place.
+`pnpm verify` runs the explicit-`any` policy check, documentation metadata check, type checking, unit/API tests, and application production builds. CI also runs `pnpm docs:build` to validate the VitePress site and its internal links. `pnpm test:integration` runs the API and worker PostgreSQL suites when `TEST_DATABASE_URL` is configured. `pnpm test:e2e` builds the API prerequisites and runs the Playwright browser checks against the local synthetic preview identity. CI installs Chromium before running this command. `docker compose config` catches malformed service, network, volume, and environment declarations without starting containers.
 
 The web API-client suite covers non-JSON proxy failures, bounded actionable error messages, tenant headers, JSON command payloads, and idempotency headers. The API seam covers liveness/readiness and repeated collaboration grants. Keep these checks aligned with the deployment contract and operational failure modes.
 
@@ -47,7 +48,7 @@ The web API-client suite covers non-JSON proxy failures, bounded actionable erro
 
 ### Browser seam
 
-The previous browser golden-path spec was removed from CI because it depended on an unstable client-side action state and did not represent a production-authenticated workflow. The public route tree, Rauthy entry/callback routes, sign-in gate, workspace actions, and end-to-end mutations remain covered by route, component, API, and integration tests. Add browser coverage again after a Rauthy test user and deterministic role fixture are provisioned.
+The Playwright browser seam currently covers public-page navigation, preview role-specific queues and record inspection, and mobile workspace navigation without horizontal overflow. These checks intentionally run only against synthetic preview data. They do not cover Rauthy authentication, verified tenant membership, live integrations, payment execution, or tenant-switch isolation. Add those cases when a deterministic identity-provider test user and isolated service fixtures are available.
 
 ### Worker seam
 
@@ -77,7 +78,7 @@ Before production deployment or any real payment:
 - Additional transactional outbox tests under duplicate delivery, worker restart, and real PostgreSQL locking.
 - Object-store contract tests against RustFS and R2 for upload, download, presigning, checksums, CORS, and private access.
 - Contract tests against the selected Tempo testnet contract and Solana devnet receipt path.
-- Additional Playwright coverage for mobile receiving, failure states, and tenant-switch isolation.
+- Playwright coverage for verified sessions, mobile receiving actions, failure states, and tenant-switch isolation.
 - Dependency, image, secret, and migration scans.
 - Restore test and evidence-object reconciliation.
 - Testnet chain adapter execution with a deployed contract, duplicate/timeout reconciliation, and Solana memo lookup.

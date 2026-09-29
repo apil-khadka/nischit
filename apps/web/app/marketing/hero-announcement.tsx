@@ -4,7 +4,7 @@ export function HeroAnnouncement({
   prefix = "Platform",
   message = (
     <>
-      Evaluation records are synthetic · external integrations require explicit configuration and verification.
+      Synthetic examples · integrations require explicit configuration and verification.
     </>
   ),
   linkText = "Architecture →",

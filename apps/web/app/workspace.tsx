@@ -11,8 +11,6 @@ import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
 import { Step, Stepper } from "@astryxdesign/core/Stepper";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
@@ -22,6 +20,7 @@ import { LiveVerificationResults, type LiveVerificationPair } from "./live-verif
 import { apiBase, request } from "./workspace/client";
 import { IntegrationReadinessPanel } from "./workspace/integration-readiness-panel";
 import { WorkspaceSidebar } from "./workspace/sidebar";
+import { RecordQueue, StateMark } from "./workspace/record-queue";
 import { pageMeta, type IntegrationReadiness, type PageId, type RoleSession, type WorkRow, type WorkspaceRole } from "./workspace/shared";
 import { initialSession, roleDefaults } from "./workspace/session-config";
 import { RoleRulesPanel, WorkflowGuide } from "./workspace/workflow-panels";
@@ -31,22 +30,6 @@ type PageState = {
   status: "idle" | "loading" | "ready" | "error";
   rows: WorkRow[];
   message?: string;
-};
-
-
-
-const statusVariant = (state: string): "neutral" | "info" | "success" | "warning" | "error" => {
-  if (["accepted", "confirmed", "closed", "received", "funded"].includes(state)) return "success";
-  if (["held", "exception", "pending_qa", "awaiting_qa", "in_transit", "draft"].includes(state)) return "warning";
-  if (["rejected", "refunded", "unknown"].includes(state)) return "error";
-  return "info";
-};
-
-const StateMark = ({ state }: { state: string }) => {
-  const variant = statusVariant(state);
-  const dotVariant = variant === "info" ? "accent" : variant;
-  const label = state.replaceAll("_", " ");
-  return <span className="state-mark"><StatusDot variant={dotVariant} label={label} /><span>{label}</span></span>;
 };
 
 export default function Workspace() {
@@ -263,30 +246,6 @@ export default function Workspace() {
     }
   }
 
-  const columns = useMemo<TableColumn<WorkRow>[]>(() => [
-    { key: "reference", header: "Reference", width: proportional(1), renderCell: (row: WorkRow) => <Text type="supporting" className="mono">{row.reference}</Text> },
-    { key: "subject", header: "Record", width: proportional(2), renderCell: (row: WorkRow) => <Text weight="semibold">{row.subject}</Text> },
-    { key: "state", header: "State", width: proportional(1), renderCell: (row: WorkRow) => <StateMark state={row.state} /> },
-    { key: "detail", header: "Details", width: proportional(2), renderCell: (row: WorkRow) => <Text type="supporting">{row.detail}</Text> },
-    {
-      key: "open",
-      header: "",
-      width: proportional(1),
-      align: "end",
-      renderCell: (row: WorkRow) => {
-        const isInspecting = selected?.id === row.id;
-        return (
-          <Button
-            label={isInspecting ? "Inspecting" : "Inspect →"}
-            variant={isInspecting ? "primary" : "ghost"}
-            size="sm"
-            onClick={() => setSelected(isInspecting ? undefined : row)}
-          />
-        );
-      },
-    },
-  ], [selected?.id]);
-
   const queueCounts = useMemo<Record<PageId, number>>(() => ({
     overview: activePage === "overview" && pageState.status === "ready" ? pageState.rows.length : 0,
     "purchase-orders": activePage === "purchase-orders" && pageState.status === "ready" ? pageState.rows.length : 0,
@@ -454,7 +413,10 @@ export default function Workspace() {
         </div>
 
         {session.kind === "preview" ? (
-          <Banner status="info" title="Preview workspace" description="Sample data may be synthetic. Check each record and the integration status before relying on it; this session does not establish live chain verification." />
+          <aside className="workspace-preview-note" role="note">
+            <span>Preview</span>
+            <p>Sample records and simulated actions. Payments and chain receipts are not verified.</p>
+          </aside>
         ) : null}
 
         {notice ? <Banner status={notice.status} title={notice.title} description={notice.description} isDismissable onDismiss={() => setNotice(undefined)} /> : null}
@@ -535,7 +497,7 @@ export default function Workspace() {
                           <Text type="supporting">{pageState.rows.length} record{pageState.rows.length === 1 ? "" : "s"} visible to this workspace</Text>
                         </div>
                       </div>
-                      <Table data={pageState.rows} columns={columns} density="compact" dividers="rows" hasHover textOverflow="wrap" />
+                      <RecordQueue rows={pageState.rows} page={activePage} role={session.role} selectedId={selected.id} onSelect={setSelected} />
                     </Card>
                   ) : null}
                 </div>
@@ -570,7 +532,7 @@ export default function Workspace() {
                         <Text type="supporting">{pageState.rows.length} record{pageState.rows.length === 1 ? "" : "s"} visible to this workspace</Text>
                       </div>
                     </div>
-                    <Table data={pageState.rows} columns={columns} density="balanced" dividers="rows" hasHover textOverflow="wrap" />
+                    <RecordQueue rows={pageState.rows} page={activePage} role={session.role} onSelect={setSelected} />
                   </Card>
                 ) : null}
               </>

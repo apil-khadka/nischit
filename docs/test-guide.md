@@ -42,6 +42,8 @@ This guide describes expected behavior in ordinary language. Edit these statemen
 
 ## What a passing run means
 
-A passing run means the automated cases that ran passed under their test conditions. It does not mean every expectation in this guide is covered, and it does not prove a production identity provider, storage service, payment network, contract, or deployment is configured correctly. Live network checks, full browser workflows, backup restoration, and deployment security reviews remain separate verification work.
+A browser check should be able to move through the public Product, Workflow, Security, and Pricing pages and see the matching navigation item become active. In the local preview workspace, changing the role should show the work appropriate to that role, and opening a work record should show its details. At a phone-sized screen, the workspace menu should remain on screen, its sections should open, and the page should not scroll sideways.
+
+These browser checks use synthetic preview identities and in-memory services. They do not sign in through the production identity provider, send payments, or verify a chain receipt. A passing run means the automated cases that ran passed under their test conditions. It does not mean every expectation in this guide is covered, and it does not prove a production identity provider, storage service, payment network, contract, or deployment is configured correctly. Live network checks, backup restoration, and deployment security reviews remain separate verification work.
 
 For the commands and detailed coverage map, see [the testing reference](testing.md). The repository commands are also listed in the [README](https://github.com/apil-khadka/nischit#verification-commands).

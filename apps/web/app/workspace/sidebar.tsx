@@ -91,6 +91,7 @@ export function WorkspaceSidebar({
           <span>{session.kind === "preview" ? "Preview data" : "Verified session"}</span>
         </div>
         <span className="sidebar-compliance-note">Role permissions enforced by the API</span>
+        <a href="/" className="sidebar-public-link">Public site <span aria-hidden="true">↗</span></a>
       </div>
     </aside>
   );

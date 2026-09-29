@@ -5,19 +5,38 @@ export type Catalog = { products: Array<{ id: string; name: string; baseUnit: st
 export const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export const displayId = (value: unknown) => typeof value === "string" ? value.slice(0, 12) : "Unassigned";
 export const asString = (value: unknown, fallback = "Unassigned") => typeof value === "string" || typeof value === "number" ? String(value) : fallback;
+const detailValue = (value: unknown): string | undefined => {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const text = String(value).trim();
+  return text || undefined;
+};
+const detailLine = (...values: unknown[]) => values.map(detailValue).filter((value): value is string => Boolean(value)).join(" · ") || "No additional details";
+const measuredValue = (value: unknown, unit: unknown): string | undefined => {
+  const amount = detailValue(value);
+  if (amount === undefined) return undefined;
+  const unitLabel = detailValue(unit);
+  return unitLabel ? `${amount} ${unitLabel}` : amount;
+};
 export const mapRows = (page: PageId, payload: unknown): WorkRow[] => {
   if (!Array.isArray(payload)) return [];
   return payload.map((item, index) => {
     const raw = asRecord(item);
     const id = asString(raw.purchaseOrderId ?? raw.shipmentId ?? raw.receiptId ?? raw.lotId ?? raw.id, `record-${index + 1}`);
-    if (page === "receiving") return { id, reference: displayId(raw.shipmentId), subject: asString(raw.productName), state: "Awaiting receipt", detail: `${asString(raw.quantity)} ${asString(raw.unit)} · lot ${asString(raw.manufacturerLotNumber)}`, raw };
-    if (page === "qa") return { id, reference: displayId(raw.receiptId), subject: asString(raw.productName), state: asString(raw.conditionStatus, "pending_qa"), detail: `${asString(raw.receivedQuantity)} received at ${asString(raw.siteId)}`, raw };
-    if (page === "settlement") return { id, reference: displayId(raw.purchaseOrderId), subject: asString(raw.supplierTenantName), state: asString(raw.settlementStatus), detail: `${asString(raw.amountBaseUnits)} ${asString(raw.token)} · QA ${asString(raw.qaStatus, "pending")}`, raw };
-    if (page === "inventory") return { id, reference: displayId(raw.lotId), subject: asString(raw.siteId), state: raw.quarantined ? "quarantined" : "usable", detail: `${asString(raw.usable)} usable · ${asString(raw.onHand)} on hand`, raw };
-    if (page === "audit") return { id, reference: displayId(raw.id), subject: asString(raw.action), state: asString(raw.resourceType), detail: `${asString(raw.actorId)} · ${asString(raw.createdAt)}`, raw };
-    if (page === "settings") return { id, reference: asString(raw.id ?? raw.code), subject: asString(raw.name ?? raw.label), state: raw.active === false ? "inactive" : "active", detail: asString(raw.kind ?? raw.timezone), raw };
-    if (raw.productName) return { id, reference: displayId(raw.purchaseOrderId), subject: asString(raw.productName), state: asString(raw.status), detail: `${asString(raw.quantity)} ${asString(raw.unit)} · ${asString(raw.buyerTenantName, asString(raw.token))}`, raw };
-    return { id, reference: displayId(raw.id), subject: asString(raw.name ?? raw.productId), state: asString(raw.status), detail: `${asString(raw.quantity)} ${asString(raw.unit)} · ${asString(raw.token)}`, raw };
+    if (page === "receiving") return { id, reference: displayId(raw.shipmentId), subject: asString(raw.productName), state: "Awaiting receipt", detail: detailLine(measuredValue(raw.quantity, raw.unit), raw.manufacturerLotNumber ? `Lot ${raw.manufacturerLotNumber}` : undefined), raw };
+    if (page === "qa") {
+      const received = detailValue(raw.receivedQuantity);
+      return { id, reference: displayId(raw.receiptId), subject: asString(raw.productName), state: asString(raw.conditionStatus, "pending_qa"), detail: detailLine(received === undefined ? undefined : `${received} received`, raw.siteId), raw };
+    }
+    if (page === "settlement") return { id, reference: displayId(raw.purchaseOrderId), subject: asString(raw.supplierTenantName), state: asString(raw.settlementStatus), detail: detailLine(raw.amountBaseUnits, raw.token, raw.qaStatus ? `QA ${raw.qaStatus}` : undefined), raw };
+    if (page === "inventory") {
+      const usable = detailValue(raw.usable);
+      const onHand = detailValue(raw.onHand);
+      return { id, reference: displayId(raw.lotId), subject: asString(raw.siteId), state: raw.quarantined ? "quarantined" : "usable", detail: detailLine(usable === undefined ? undefined : `${usable} usable`, onHand === undefined ? undefined : `${onHand} on hand`), raw };
+    }
+    if (page === "audit") return { id, reference: displayId(raw.id), subject: asString(raw.action), state: asString(raw.resourceType), detail: detailLine(raw.actorId, raw.createdAt), raw };
+    if (page === "settings") return { id, reference: asString(raw.id ?? raw.code), subject: asString(raw.name ?? raw.label), state: raw.active === false ? "inactive" : "active", detail: detailLine(raw.kind ?? raw.timezone), raw };
+    if (raw.productName) return { id, reference: displayId(raw.purchaseOrderId), subject: asString(raw.productName), state: asString(raw.status), detail: detailLine(measuredValue(raw.quantity, raw.unit), raw.buyerTenantName ?? raw.token), raw };
+    return { id, reference: displayId(raw.id), subject: asString(raw.name ?? raw.productId), state: asString(raw.status), detail: detailLine(measuredValue(raw.quantity, raw.unit), raw.token), raw };
   });
 };
 

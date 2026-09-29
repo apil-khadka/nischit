@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm -r typecheck",
     "test": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm -r test",
-    "test:e2e": "pnpm --filter @nischit/web test:e2e",
+    "test:e2e": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm --filter @nischit/api build && pnpm --filter @nischit/web test:e2e",
     "test:integration": "pnpm --filter @nischit/domain build && pnpm --filter @nischit/chains build && pnpm --filter @nischit/storage build && pnpm --filter @nischit/api test:integration && pnpm --filter @nischit/worker test:integration",
     "test:coverage": "pnpm --filter @nischit/domain test:coverage",
     "check:no-any": "node scripts/check-no-any.mjs",
