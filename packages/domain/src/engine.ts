@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { hashCommitment } from "./commitments.js";
 import { conflict, DomainError, forbidden, notFound, PaymentNotSubmittedError, PaymentOutcomeUnknownError } from "./errors.js";
 import { assessConditionCoverage, createConditionReport } from "./condition-evidence.js";
 import type {
@@ -538,7 +539,7 @@ export class NischitEngine {
         allowAdjustmentBps: input.policy?.allowAdjustmentBps ?? false,
       };
       const termsNonce = randomUUID();
-      const termsHash = hash({
+      const termsHash = hashCommitment({
         domain: "nischit.purchase-order.terms",
         version: 1,
         nonce: termsNonce,
@@ -768,7 +769,7 @@ export class NischitEngine {
         status: input.status,
         reason: input.reason,
         adjustmentBps,
-        evidenceHash: hash({ report, status: input.status, reason: input.reason, adjustmentBps }),
+        evidenceHash: hashCommitment({ report, status: input.status, reason: input.reason, adjustmentBps }),
         decidedBy: actor.userId,
         decidedAt: now(),
       };

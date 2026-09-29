@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashCommitment } from "./commitments.js";
 import { conflict } from "./errors.js";
 import type {
   AcceptancePolicy,
@@ -17,26 +17,15 @@ export interface ConditionEvidenceInput {
   createdAt: string;
 }
 
-const stableStringify = (value: unknown): string => {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`)
-    .join(",")}}`;
-};
-
-const hash = (value: unknown) => createHash("sha256").update(stableStringify(value)).digest("hex");
-
 const merkleRoot = (leaves: string[]) => {
-  if (leaves.length === 0) return hash([]);
+  if (leaves.length === 0) return hashCommitment([]);
   let level = [...leaves];
   while (level.length > 1) {
     const next: string[] = [];
     for (let index = 0; index < level.length; index += 2) {
       const left = level[index]!;
       const right = level[index + 1] ?? left;
-      next.push(hash(`${left}:${right}`));
+      next.push(hashCommitment(`${left}:${right}`));
     }
     level = next;
   }
@@ -53,7 +42,7 @@ const readingPayload = (reading: ConditionReading) => ({
   ...(reading.previousHash ? { previousHash: reading.previousHash } : {}),
 });
 
-const readingCommitment = (reading: ConditionReading) => hash(readingPayload(reading));
+const readingCommitment = (reading: ConditionReading) => hashCommitment(readingPayload(reading));
 const isSha256 = (value: string) => /^[a-f0-9]{64}$/i.test(value);
 
 const validateEvidenceDocuments = (documents: EvidenceDocument[]) => {
@@ -137,7 +126,7 @@ export function createConditionReport(input: ConditionEvidenceInput): ConditionR
     ))
     : undefined;
   const validTemperatures = temperatures.filter(Number.isFinite);
-  const readingHashes = sequences.map((reading) => hash(reading));
+  const readingHashes = sequences.map((reading) => hashCommitment(reading));
   return {
     id: input.id,
     shipmentId: input.shipmentId,
@@ -159,7 +148,7 @@ export function createConditionReport(input: ConditionEvidenceInput): ConditionR
     signatureCoverage,
     hashChainValid,
     documents: input.documents,
-    readingsHash: hash({ shipmentId: input.shipmentId, readings: sequences, documents: input.documents }),
+    readingsHash: hashCommitment({ shipmentId: input.shipmentId, readings: sequences, documents: input.documents }),
     telemetryMerkleRoot: merkleRoot(readingHashes),
     createdAt: input.createdAt,
   };

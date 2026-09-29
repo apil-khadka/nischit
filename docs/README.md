@@ -45,6 +45,6 @@ When expected product behavior changes, edit the [plain-language test guide](tes
 
 Each page has YAML frontmatter for the documentation site. Use one of the page types above and add the page to the matching group in `docs/.vitepress/config.mts`. Run `pnpm check:docs` for metadata validation and `pnpm docs:build` to check the site.
 
-The GitHub Pages workflow builds and publishes only `docs/.vitepress/dist` when documentation changes reach `main`. Enable GitHub Pages with GitHub Actions as its source before the first deployment; this is tracked in the root [TODO](https://github.com/apil-khadka/nischit/blob/main/TODO.md).
+The [GitHub Pages workflow](https://github.com/apil-khadka/nischit/blob/main/.github/workflows/docs.yml) builds and publishes only `docs/.vitepress/dist` when documentation content, site dependencies, or the workflow change on `main`. It also supports manual runs from the Actions tab. The published site is available at <https://apil-khadka.github.io/nischit/>.
 
 Do not include credentials, patient information, customer records, or confidential supplier documents in examples or documentation.

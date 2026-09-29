@@ -14,7 +14,7 @@ It is designed around production concerns: tenant isolation, private evidence st
 - [Documentation index](docs/README.md)
 - [Active TODO list](TODO.md)
 
-The documentation site uses VitePress. Run `pnpm docs:dev` to preview it locally; see the [documentation index](docs/README.md) for the page map and writing guidance.
+The [documentation site](https://apil-khadka.github.io/nischit/) uses VitePress. Run `pnpm docs:dev` to preview it locally; see the [documentation index](docs/README.md) for the page map and writing guidance.
 
 ## Development setup
 

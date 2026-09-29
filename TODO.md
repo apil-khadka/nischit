@@ -8,10 +8,10 @@ This is the active work list. The [roadmap](docs/roadmap.md) explains the produc
 - [x] Split workspace data, session setup, navigation, and workflow panels into focused modules.
 - [x] Add an AST-based check that rejects explicit TypeScript `any` types.
 - [x] Add VitePress source docs, organized navigation, required page metadata, and CI site-build validation.
+- [x] Publish only the generated documentation site to GitHub Pages from `main`.
 
 ## Documentation and contributor workflow
 
-- [ ] Enable GitHub Pages with GitHub Actions as the source and confirm the first docs deployment.
 - [ ] Keep page metadata, links, and sidebar navigation aligned when pages change.
 - [ ] Make behavior-guide changes easy to propose and trace through the matching implementation and automated checks.
 
