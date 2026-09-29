@@ -16,18 +16,24 @@ test("public navigation reaches every product page", async ({ page }) => {
   }
 });
 
-test("preview roles show role-specific work and open its record", async ({ page }) => {
+test("preview overview summarizes the buyer queue and opens its next record", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByRole("note")).toContainText("Sample records and simulated actions");
   await expect(page.getByRole("heading", { level: 1, name: "Buyer work queue" })).toBeVisible();
 
-  await page.getByRole("button", { name: /Review High-Fidelity Taq Polymerase/ }).click();
+  const queueSummary = page.getByRole("complementary", { name: "Queue overview" });
+  await expect(queueSummary.getByRole("heading", { name: "Queue summary" })).toBeVisible();
+  const statusCounts = queueSummary.getByRole("list", { name: "Decisions by status" });
+  await expect(statusCounts.getByText("Funded", { exact: true })).toBeVisible();
+  await expect(statusCounts.getByText("Acknowledged", { exact: true })).toBeVisible();
+
+  await queueSummary.getByRole("button", { name: /Review High-Fidelity Taq Polymerase/ }).click();
   await expect(page.getByRole("heading", { name: "High-Fidelity Taq Polymerase 5U/µL" })).toBeVisible();
 
   await page.getByLabel("Switch preview role").selectOption("receiving");
   await expect(page.getByRole("heading", { level: 1, name: "Work that needs your attention" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Review High-Fidelity Taq Polymerase/ })).toBeVisible();
-  await expect(page.getByText("Record the delivery", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Work records" }).getByRole("button", { name: /Review High-Fidelity Taq Polymerase/ })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Work records" }).getByText("Record the delivery", { exact: true })).toBeVisible();
 });
 
 test("mobile workspace navigation stays in view and opens its sections", async ({ page }) => {

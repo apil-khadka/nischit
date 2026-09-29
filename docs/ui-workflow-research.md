@@ -6,7 +6,7 @@ docType: explanation
 
 # Nischit workflow UI research
 
-Updated 18 September 2026.
+Updated 29 September 2026.
 
 This document records the product UI decision after reviewing the current Nischit implementation, the Astryx component library, the existing domain state machine, and the laboratory receiving/quality workflow described in the product research.
 
@@ -29,7 +29,7 @@ Nischit will use those primitives before adding product-specific markup:
 | Need | Astryx composition | Nischit rule |
 | --- | --- | --- |
 | Workspace frame | `AppShell` + `TopNav` + `SideNav` | Navigation is persistent and names work areas in the operator's language. |
-| Queue | `Table` + `StatusDot` + `EmptyState` | One row represents one actionable record; status is a dot plus explicit text, never a pill. |
+| Queue | Responsive queue rows + `StateMark` + `EmptyState` | One row represents one actionable record; state always has a readable label and restrained semantic color. |
 | Shipment acceptance | `Stepper` + `Banner` + `MetadataList` | Keep the current decision and its evidence in the same reading path. |
 | Forms | `FormLayout` + `Field` + typed inputs | One primary action per screen; validation is inline and specific. |
 | Evidence | `Card` + `FileInput` + `Dialog` + `Code` | Private object references stay private; hashes are identifiers, not decoration. |
@@ -44,7 +44,7 @@ The browser surface should expose these role-scoped work areas. Authorization re
 
 | Role | Default work area | Primary decision |
 | --- | --- | --- |
-| Buyer owner / procurement | Purchase orders | Create terms and explicitly grant supplier access. |
+| Buyer owner / procurement | Overview | Review prioritized purchase orders; create terms and explicitly grant supplier access from Purchase orders. |
 | Supplier | Supplier inbox | Acknowledge terms, prepare shipment, attach evidence. |
 | Receiving | Receiving queue | Confirm quantity, lot, site, and physical receipt. |
 | QA | Review queue | Accept, adjust, hold, or reject with a reason and evidence. |
@@ -69,9 +69,11 @@ Nischit / tenant / site / signed-in user
 
 ### Overview
 
-The overview is a prioritized needs-attention list, not a fake KPI wall. It contains an urgent exception/recall banner when one exists, the next three pending decisions for the current role, a compact lifecycle strip for a selected purchase order, and a small recent activity list sourced from audit events.
+The overview is a prioritized needs-attention list, not a fake KPI wall. The current screen shows each loaded, role-scoped record with its reference, item, state, next action, and a control that opens the record inspector. Its queue summary counts those same records by state, and “Up next” opens the first record in queue order. These counts stay hidden until the queue has loaded; an empty queue uses an Empty State.
 
-If there is no work, use an Astryx Empty State that explains how the current role receives work. Do not invent counts.
+On narrow screens, queue rows become stacked records and the summary follows the queue. The selected record inspector owns lifecycle and action details. Do not show activity timestamps unless they come from an authorized audit response; the buyer queue cannot assume audit access and must not invent recent events.
+
+Urgent recall or exception banners should appear when the relevant live record is available. Future activity views must use authorized audit data and clearly distinguish recorded events from preview fixtures.
 
 ### Purchase order detail
 
@@ -103,9 +105,9 @@ The public page is a separate read-only route. It has a plain-language summary, 
 
 The visual direction is a calm laboratory console: bright Butter foundation, quiet surfaces, clear blue action, and restrained status color. The 60–30–10 rule is applied as composition: 60% warm Butter body/surface tokens, 30% muted section and semantic surfaces, and 10% blue interaction and verification emphasis.
 
-No pill-shaped status system, no decorative gradients, no looping animation, no dashboard-shaped collection of four arbitrary statistics, and no rounded-card wall. Nischit uses `StatusDot` plus explicit text for state; persistent risk uses a Banner; tables carry the density; dividers establish hierarchy. Astryx badges remain available for future non-state metadata, but are not part of the primary workflow language.
+Use compact, explicitly labeled state marks with restrained semantic color; color alone never conveys state. Avoid decorative gradients, looping animation, arbitrary KPI panels, and rounded-card walls. Persistent risk uses a Banner, queue rows carry the density, and dividers establish hierarchy. Do not show status or activity data that the active role cannot read.
 
-Use Outfit for operational text and JetBrains Mono only for PO IDs, lot numbers, object IDs, hashes, device IDs, and transaction references. Use Astryx semantic tokens rather than raw hex values in product components. Tenant theming may change approved accent and neutral tokens but may not redefine semantic success, warning, error, or verified colors.
+Use Plus Jakarta Sans for interface text and JetBrains Mono for PO IDs, lot numbers, object IDs, hashes, device IDs, and transaction references. Use Astryx semantic tokens rather than raw hex values in product components. Tenant theming may change approved accent and neutral tokens but may not redefine semantic success, warning, error, or verified colors.
 
 ## Implementation gates
 

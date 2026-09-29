@@ -121,7 +121,7 @@ Receiving screens should use larger touch targets and clear one-action rows. Den
 
 - App shell with a calm top navigation and tenant/site switcher.
 - Left navigation for desktop; bottom or compact navigation for mobile receiving.
-- Tables for lots, purchase orders, and audit events.
+- Responsive labeled rows for workspace queues; use tables where users need to compare several record fields side by side.
 - Stepper/timeline for PO → shipment → receiving → QA → settlement.
 - Banner for urgent exception or recall state.
 - Drawer/dialog for secondary evidence and documents; keep the primary decision visible.
@@ -136,7 +136,7 @@ Use Astryx components by category entrypoint. The initial Nischit screen map is:
 | Product need | Astryx primitives |
 |---|---|
 | Tenant/site navigation | App Shell, Top Nav, Side Nav, Select, Avatar |
-| Workspace overview | Card, Stat, Table, Status Dot, Banner |
+| Workspace overview | App Shell, Card, responsive queue rows, labeled state, Empty State, Banner |
 | Purchase order | Form Layout, Field, Text Input, Number Input, Date Input, Table, Stepper |
 | Receiving | QR/scan wrapper, Button, Card, Number Input, Checkbox, Banner, Toast |
 | Condition evidence | Card, Table, Chart wrapper, Dialog, Tooltip |

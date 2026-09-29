@@ -48,7 +48,7 @@ The web API-client suite covers non-JSON proxy failures, bounded actionable erro
 
 ### Browser seam
 
-The Playwright browser seam currently covers public-page navigation, preview role-specific queues and record inspection, and mobile workspace navigation without horizontal overflow. These checks intentionally run only against synthetic preview data. They do not cover Rauthy authentication, verified tenant membership, live integrations, payment execution, or tenant-switch isolation. Add those cases when a deterministic identity-provider test user and isolated service fixtures are available.
+The Playwright browser seam currently covers public-page navigation, the buyer overview's role-scoped status summary and “Up next” record shortcut, preview role-specific queues and record inspection, and mobile workspace navigation without horizontal overflow. These checks intentionally run only against synthetic preview data. They do not cover Rauthy authentication, verified tenant membership, live integrations, payment execution, or tenant-switch isolation. Add those cases when a deterministic identity-provider test user and isolated service fixtures are available.
 
 ### Worker seam
 

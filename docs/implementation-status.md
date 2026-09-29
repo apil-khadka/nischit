@@ -25,6 +25,7 @@ This repository contains an evolving implementation of the lab-supply workflow, 
 - Role checks, active-tenant checks, scoped supplier grants, opaque settlement references, idempotency keys, inventory conservation checks, and separate payment/publication adapters.
 - Domain behavior tests and API seam tests.
 - Astryx Butter global CSS, Nischit design tokens, responsive dashboard shell, keyboard focus, status text, and reduced-motion handling.
+- Role-aware workspace overview with labeled purchase-order queue columns, status counts derived from the loaded queue, a shortcut to its first prioritized record, and a stacked mobile layout. The overview does not invent activity events or timestamps.
 - Docker multi-target build, Compose services for PostgreSQL, Valkey, optional local RustFS, API, and web.
 - PostgreSQL migrations provide normalized tenant, procurement, evidence, settlement, audit, outbox, and RLS tables, including durable payment-action and evidence-coverage fields.
 - Worker process that polls the durable outbox table, acknowledges the implemented audit-event handler, and leaves unknown topics retryable.

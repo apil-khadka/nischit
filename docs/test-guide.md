@@ -40,6 +40,14 @@ This guide describes expected behavior in ordinary language. Edit these statemen
 - The background worker should record completion for event types it knows how to handle. It should leave unknown event types available for a later retry rather than silently discarding them.
 - Saving operational state and its audit/outbox records should succeed or fail together, so the system does not report an action without its corresponding audit record.
 
+## Workspace overview
+
+- The overview should show each record the active role can access, with its reference, item, current state, next action, and a way to open the record.
+- The queue summary should count only the records loaded for that role. Its “Up next” shortcut should open the first record in queue order.
+- Selecting a record from the queue or the shortcut should open the same record inspector.
+- When the queue is empty or still loading, the screen should not present a count as if it were final. At phone width, queue records and the summary should stack without horizontal scrolling.
+- Recent activity and timestamps should come from audit events the active role is allowed to read. The interface should not make up events or timestamps to fill space.
+
 ## What a passing run means
 
 A browser check should be able to move through the public Product, Workflow, Security, and Pricing pages and see the matching navigation item become active. In the local preview workspace, changing the role should show the work appropriate to that role, and opening a work record should show its details. At a phone-sized screen, the workspace menu should remain on screen, its sections should open, and the page should not scroll sideways.

@@ -46,7 +46,7 @@ flowchart TB
 
 Next.js App Router and TypeScript using Astryx components and the Nischit Butter theme. It renders tenant-scoped screens, mobile receiving workflows, QA queues, verification reports, and operational dashboards. The browser never decides the tenant or permission; it displays context supplied by the API and sends an explicit tenant context with each request.
 
-The workspace route coordinates the screen state while focused modules own row mapping and preview data, session defaults, navigation, integration readiness, and workflow guidance. Keep those concerns in the `apps/web/app/workspace/` modules as the screen grows.
+The workspace route coordinates screen state while focused modules own row mapping and preview data, session defaults, navigation, integration readiness, workflow guidance, and the overview summary derived from the loaded queue. Keep those concerns in the `apps/web/app/workspace/` modules as the screen grows; queue counts must use only records the active role can read.
 
 ### `apps/api`
 
