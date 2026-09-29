@@ -110,7 +110,8 @@ services:
       dockerfile: Dockerfile
       target: worker
     environment:
-      NODE_ENV: production
+      # This Compose file is the local stack; production must provide a restricted runtime role.
+      NODE_ENV: development
       DATABASE_URL: postgres://nischit:nischit_local@postgres:5432/nischit
     depends_on:
       postgres: { condition: service_healthy }
